@@ -99,6 +99,8 @@ FCU_STATE_TOPIC = "/mavros/state"
 LIDAR_TOPIC = "/lidar/sectors"
 # SLAM pose of the LiDAR in the map frame -- radio only (TUNNEL SLAM_POSE).
 SLAM_POSE_TOPIC = "/slam/pose"
+# The map as the organiser's 1 m arena grid -- radio only (TUNNEL ARENA_GRID).
+ARENA_GRID_TOPIC = "/arena/grid"
 STATUSTEXT_TOPIC = "/mavros/statustext/recv"
 VELOCITY_TOPIC = "/mavros/local_position/velocity_local"
 GPS_TOPIC = "/mavros/global_position/global"

@@ -26,6 +26,7 @@ import math
 from collections import deque
 from typing import Callable, Deque, List, Optional, Tuple
 
+from .arena_grid import ARENA_GRID_TYPE, ArenaGrid, ArenaGridSender
 from .map_grid import SLAM_POSE_TYPE, MAP_ROWS_TYPE, GridMeta, MapSender, encode_pose
 from .telem_command_codec import (
     FCU_RELAY_COMPONENT_ID,
@@ -64,6 +65,11 @@ DEFAULT_MAP_RATE_HZ = 2.0
 MAP_STALE_S = 5.0
 SLAM_POSE_STALE_S = 1.0
 
+# 1 m arena grid (arena_grid.py): one ARENA_GRID TUNNEL (<= ~145 B) per period,
+# parts in turn, while the grid is fresh (recomputed every few seconds).
+DEFAULT_ARENA_RATE_HZ = 1.0
+ARENA_STALE_S = 15.0
+
 STATUSTEXT_PER_TICK = 2
 STATUSTEXT_QUEUE = 20
 MISSION_DETAIL_RESEND_S = 5.0
@@ -99,6 +105,7 @@ class TelemetryRelay:
         start_time: float,
         lidar_rate_hz: float = DEFAULT_LIDAR_RATE_HZ,
         map_rate_hz: float = DEFAULT_MAP_RATE_HZ,
+        arena_rate_hz: float = DEFAULT_ARENA_RATE_HZ,
     ) -> None:
         self._next_seq = next_seq
         self._start = start_time
@@ -109,6 +116,9 @@ class TelemetryRelay:
         self._map_schedule = Schedule(1.0 / map_rate_hz) if map_rate_hz > 0 else None
         self._map = MapSender()
         self._map_at: Optional[float] = None
+        self._arena_schedule = Schedule(1.0 / arena_rate_hz) if arena_rate_hz > 0 else None
+        self._arena = ArenaGridSender()
+        self._arena_at: Optional[float] = None
         self._slam_pose: Optional[Tuple[float, float, float]] = None
         self._slam_pose_at: Optional[float] = None
 
@@ -175,6 +185,10 @@ class TelemetryRelay:
         self._map.update(meta, cells)
         self._map_at = now
 
+    def update_arena(self, now: float, grid: ArenaGrid) -> None:
+        self._arena.update(grid)
+        self._arena_at = now
+
     def update_slam_pose(self, now: float, x_m: float, y_m: float, yaw_rad: float) -> None:
         self._slam_pose = (x_m, y_m, yaw_rad)
         self._slam_pose_at = now
@@ -220,6 +234,14 @@ class TelemetryRelay:
             payload = self._map.next_payload(now)
             if payload is not None:
                 frames.append(encode_tunnel(MAP_ROWS_TYPE, payload, self._next_seq()))
+        if (
+            self._arena_schedule is not None
+            and self._fresh(self._arena_at, now, ARENA_STALE_S)
+            and self._arena_schedule.due(now)
+        ):
+            payload = self._arena.next_payload()
+            if payload is not None:
+                frames.append(encode_tunnel(ARENA_GRID_TYPE, payload, self._next_seq()))
 
         self._queue_mission_detail(now)
         frames.extend(self._statustext_frames())

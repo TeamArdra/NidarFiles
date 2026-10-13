@@ -66,6 +66,7 @@ from .missions import (
 from .radio_link import DisabledRadioLink, RadioLink, RadioUnavailable
 from .radio_telemetry import RadioTelemetryClient
 from .ros_client import (
+    ARENA_GRID_TOPIC,
     BATTERY_TOPIC,
     COVERAGE_GRID_TOPIC,
     FCU_STATE_TOPIC,
@@ -361,6 +362,7 @@ def create_app(
             origin_y=origin.get("y"),
             robot=robot,
             age_s=msg.get("age_s"),
+            arena=ros_client.latest(ARENA_GRID_TOPIC),
         )
 
     @app.get("/api/coverage", response_model=CoverageResponse, tags=["map"])

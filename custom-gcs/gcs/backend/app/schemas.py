@@ -164,6 +164,27 @@ class RobotPoseResponse(BaseModel):
     yaw_deg: float
 
 
+class ArenaGridResponse(BaseModel):
+    """The map as the organiser's 1 m grid (radio ARENA_GRID; see
+    radio_protocol.py for the frame). Edge values: 0 unknown, 1 open, 2 wall.
+    v_edges[r][k]: west edge of column col0 + k in row row0 + r (k = cols:
+    east edge of the last column). h_edges[k][c]: south edge of row row0 + k
+    in column col0 + c (k = rows: north edge of the last row)."""
+
+    theta_deg: float
+    offset_u: float
+    offset_v: float
+    entry_u: int
+    entry_v: int
+    col0: int
+    row0: int
+    cols: int
+    rows: int
+    v_edges: list[list[int]]
+    h_edges: list[list[int]]
+    age_s: float | None = None
+
+
 class MapResponse(BaseModel):
     resolution: float | None = None
     width: int | None = None
@@ -175,6 +196,7 @@ class MapResponse(BaseModel):
     origin_y: float | None = None
     robot: RobotPoseResponse | None = None
     age_s: float | None = None
+    arena: ArenaGridResponse | None = None
 
 
 class CoverageResponse(BaseModel):

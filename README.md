@@ -366,6 +366,20 @@ Reading the map: dark = free space seen through, white = walls/obstacles,
 grey = not seen yet. Walls fill in as you walk along them; a wall seen
 from one spot only is dotted.
 
+**1 m arena grid** (what the judges score: walls/openings per 1 m cell, and
+survivor grid boxes). Every 3 s the Jetson lines the SLAM map up with the
+arena's 1 m grid by itself -- it finds the wall directions and where the
+grid lines fall, assuming thin walls standing on the 1 m lines -- and sends
+every cell edge over the radio (`ARENA_GRID`, ~145 B/s). On the Map panel:
+**orange = wall, green = open, faint grey = not seen properly yet**; the
+blue-tinted square is cell (0, 0), where the LiDAR started (stand it inside
+the first cell, roughly facing along a wall), and the dashed blue square is
+the cell it's in now. The line above the map gives the grid size, wall /
+open / unknown counts and the current cell. An edge only shows open once
+free space is seen on **both** sides of it. The Jetson log says
+`arena grid aligned: … deg` the first time it locks on. Off:
+`arena_rate_hz:=0` on `radio_command_node`.
+
 ## 8. Setup tab (Pixhawk parameters)
 
 For bench work only — **never during a mission**. Start both sides in setup mode:

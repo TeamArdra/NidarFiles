@@ -114,7 +114,7 @@ def test_map_snapshot_flattens_occupancy_grid():
 def test_map_snapshot_before_any_map_received():
     client, _ = make_client()
     body = client.get("/api/map").json()
-    assert body == {"resolution": None, "width": None, "height": None, "data": None, "origin_x": None, "origin_y": None, "robot": None, "age_s": None}
+    assert body == {"resolution": None, "width": None, "height": None, "data": None, "origin_x": None, "origin_y": None, "robot": None, "age_s": None, "arena": None}
 
 
 def test_coverage_snapshot_flattens_occupancy_grid():

@@ -494,3 +494,71 @@ def test_corrupt_map_rows_are_ignored():
     client = RadioTelemetryClient(Clock())
     _feed(client, map_rows(25, 0, 0, 4, 1, 1, [1, 1, 1, 1]))  # row 1 of a 1-row map: out of range
     assert client.latest("/map") is None
+
+
+# -- 1 m arena grid (TUNNEL ARENA_GRID) ----------------------------------------------
+
+import struct  # noqa: E402
+
+_ARENA = struct.Struct("<BBBhHHhhbbBB")
+
+
+def arena_parts(gen, theta_cdeg, ou_mm, ov_mm, eu, ev, col0, row0, cols, rows, edges, per_part=444):
+    """ARENA_GRID payloads as the Jetson sends them (radio_protocol.py)."""
+    chunks = [edges[i : i + per_part] for i in range(0, len(edges), per_part)] or [[]]
+    out = []
+    for part, chunk in enumerate(chunks):
+        body = bytearray((len(chunk) + 3) // 4)
+        for i, e in enumerate(chunk):
+            body[i >> 2] |= e << ((i & 3) * 2)
+        payload = _ARENA.pack(gen, part, len(chunks), theta_cdeg, ou_mm, ov_mm, eu, ev, col0, row0, cols, rows) + body
+        out.append((JETSON, JETSON.tunnel_encode(255, 190, 0x8003, len(payload), list(payload) + [0] * (128 - len(payload)))))
+    return out
+
+
+def test_arena_grid_from_one_part():
+    client = RadioTelemetryClient(clock=Clock())
+    # 2 cols x 1 row: west edges [wall, open, wall], south [wall, unknown], north [wall, wall]
+    edges = [2, 1, 2] + [2, 0] + [2, 2]
+    _feed(client, *arena_parts(1, 700, 600, 400, -3, 2, 0, 0, 2, 1, edges))
+    a = client.latest("/arena/grid")
+    assert a["theta_deg"] == 7.0 and a["offset_u"] == 0.6 and a["offset_v"] == 0.4
+    assert (a["entry_u"], a["entry_v"], a["col0"], a["row0"], a["cols"], a["rows"]) == (-3, 2, 0, 0, 2, 1)
+    assert a["v_edges"] == [[2, 1, 2]]
+    assert a["h_edges"] == [[2, 0], [2, 2]]
+    assert a["age_s"] == 0.0
+
+
+def test_arena_grid_waits_for_all_parts_and_drops_a_superseded_one():
+    client = RadioTelemetryClient(clock=Clock())
+    cols = rows = 15
+    edges = [2] * (rows * (cols + 1)) + [1] * ((rows + 1) * cols)
+    parts = arena_parts(3, 0, 0, 0, 0, 0, 0, 0, cols, rows, edges)
+    assert len(parts) == 2
+    _feed(client, parts[1])
+    assert client.latest("/arena/grid") is None
+    # part 0 of a NEWER grid: the old half is dropped, still nothing complete
+    newer = arena_parts(4, 0, 0, 0, 0, 0, 0, 0, cols, rows, [1] * len(edges))
+    _feed(client, newer[0])
+    assert client.latest("/arena/grid") is None
+    _feed(client, newer[1])
+    a = client.latest("/arena/grid")
+    assert a["v_edges"][0] == [1] * 16 and len(a["h_edges"]) == 16
+
+
+def test_corrupt_arena_parts_are_ignored():
+    client = RadioTelemetryClient(clock=Clock())
+    _feed(client, (JETSON, JETSON.tunnel_encode(255, 190, 0x8003, 5, [1, 2, 3, 4, 5] + [0] * 123)))
+    bad = _ARENA.pack(1, 2, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1)  # part 2 of 1
+    _feed(client, (JETSON, JETSON.tunnel_encode(255, 190, 0x8003, len(bad), list(bad) + [0] * (128 - len(bad)))))
+    assert client.latest("/arena/grid") is None
+
+
+def test_api_map_carries_the_arena_grid():
+    telemetry = RadioTelemetryClient()
+    edges = [2, 2] + [1, 1]
+    _feed(telemetry, map_rows(25, 0, 0, 2, 1, 0, [1, 2]), *arena_parts(1, -250, 100, 900, 0, 0, 0, 0, 1, 1, edges))
+    app = create_app(client=telemetry, radio=FakeRadioLink(), settings=Settings())
+    with TestClient(app) as client:
+        arena = client.get("/api/map").json()["arena"]
+    assert arena["theta_deg"] == -2.5 and arena["v_edges"] == [[2, 2]] and arena["h_edges"] == [[1], [1]]

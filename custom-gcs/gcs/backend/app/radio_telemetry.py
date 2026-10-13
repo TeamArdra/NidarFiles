@@ -35,6 +35,8 @@ from typing import Any, Callable, Optional
 
 from .radio_protocol import (
     ARDUCOPTER_MODE_NAMES,
+    ARENA_EDGES_PER_PART,
+    ARENA_GRID_TYPE,
     FCU_RELAY_COMPONENT_ID,
     HOVER_VALUE_KEYS,
     JETSON_COMPONENT_ID,
@@ -49,6 +51,7 @@ from .radio_protocol import (
     STATUSTEXT_CHUNK_LEN,
 )
 from .ros_client import (
+    ARENA_GRID_TOPIC,
     BATTERY_TOPIC,
     FCU_STATE_TOPIC,
     FLIGHT_TEST_STATUS_TOPIC,
@@ -80,6 +83,7 @@ MAP_RESTART_S = 15.0
 _GRID_VALUE = {0: -1, 1: 0, 2: 100}
 _MAP_HEADER = struct.Struct("<HhhBBBB")
 _POSE = struct.Struct("<hhh")
+_ARENA_HEADER = struct.Struct("<BBBhHHhhbbBB")
 _UNKNOWN_CM = 0xFFFF
 STATUSTEXT_HISTORY = 20
 _PARTIAL_TEXT_TIMEOUT_S = 5.0
@@ -137,6 +141,9 @@ class RadioTelemetryClient:
         self._texts = TextAssembler()
         self._map_meta: Optional[tuple] = None  # (cell_cm, origin_x_cm, origin_y_cm, width, height)
         self._map_cells: list[int] = []
+        # ARENA_GRID parts of the grid being received: header -> {part: body}
+        self._arena_header: Optional[tuple] = None
+        self._arena_parts: dict[int, bytes] = {}
         self._mission_id: Optional[str] = None  # from the Jetson heartbeat
 
     # -- input (RadioLink reader thread) -------------------------------------------
@@ -150,10 +157,12 @@ class RadioTelemetryClient:
                 if kind == "HEARTBEAT":
                     self._store("jetson", MISSION_STATE_NAMES.get(msg.custom_mode & 0xFF, "unknown"), now)
                     self._mission_id = MISSION_NAMES_BY_CODE.get((msg.custom_mode >> 8) & 0xFF)
-                elif kind == "TUNNEL" and msg.payload_type in (MAP_ROWS_TYPE, SLAM_POSE_TYPE):
+                elif kind == "TUNNEL" and msg.payload_type in (MAP_ROWS_TYPE, SLAM_POSE_TYPE, ARENA_GRID_TYPE):
                     payload = bytes(msg.payload[: msg.payload_length])
                     if msg.payload_type == MAP_ROWS_TYPE:
                         self._apply_map_rows(payload, now)
+                    elif msg.payload_type == ARENA_GRID_TYPE:
+                        self._apply_arena_part(payload, now)
                     elif len(payload) >= _POSE.size:
                         x, y, yaw = _POSE.unpack_from(payload)
                         self._store("slam_pose", {"x": x / 100.0, "y": y / 100.0, "yaw_deg": yaw / 100.0}, now)
@@ -258,6 +267,46 @@ class RadioTelemetryClient:
             self._map_cells[base + i] = _GRID_VALUE.get((body[i >> 2] >> ((i & 3) * 2)) & 0x3, -1)
         self._at["map"] = now
 
+    def _apply_arena_part(self, payload: bytes, now: float) -> None:
+        """Collect the parts of one grid (same gen and header); once all have
+        arrived it replaces the shown grid. A part of a newer grid drops the
+        unfinished one."""
+        if len(payload) < _ARENA_HEADER.size:
+            return
+        f = _ARENA_HEADER.unpack_from(payload)
+        part, nparts = f[1], f[2]
+        if nparts == 0 or part >= nparts:
+            return
+        header = (f[0], nparts) + f[3:]
+        if header != self._arena_header:
+            self._arena_header = header
+            self._arena_parts = {}
+        self._arena_parts[part] = payload[_ARENA_HEADER.size :]
+        if len(self._arena_parts) < nparts:
+            return
+        _gen, _n, theta_cdeg, ou_mm, ov_mm, eu, ev, col0, row0, cols, rows = header
+        count = rows * (cols + 1) + (rows + 1) * cols
+        edges: list[int] = []
+        for k in range(nparts):
+            body = self._arena_parts[k]
+            edges.extend((body[i >> 2] >> ((i & 3) * 2)) & 0x3 for i in range(len(body) * 4))
+        if len(edges) < count or cols == 0 or rows == 0:
+            return
+        nv = rows * (cols + 1)
+        self._store("arena", {
+            "theta_deg": theta_cdeg / 100.0,
+            "offset_u": ou_mm / 1000.0,
+            "offset_v": ov_mm / 1000.0,
+            "entry_u": eu,
+            "entry_v": ev,
+            "col0": col0,
+            "row0": row0,
+            "cols": cols,
+            "rows": rows,
+            "v_edges": [edges[r * (cols + 1) : (r + 1) * (cols + 1)] for r in range(rows)],
+            "h_edges": [edges[nv + k * cols : nv + (k + 1) * cols] for k in range(rows + 1)],
+        }, now)
+
     def _store(self, key: str, value: Any, now: float) -> None:
         self._values[key] = value
         self._at[key] = now
@@ -317,6 +366,10 @@ class RadioTelemetryClient:
                 }
             if topic == SLAM_POSE_TOPIC:
                 return self._fresh("slam_pose", SLAM_POSE_STALE_S)
+            if topic == ARENA_GRID_TOPIC:
+                # like the map: the last grid stays shown, with its age
+                arena = self._values.get("arena")
+                return None if arena is None else {**arena, "age_s": round(self._clock() - self._at["arena"], 1)}
             if topic == LIDAR_TOPIC:
                 scan = self._fresh("lidar", LIDAR_STALE_S)
                 return None if scan is None else {**scan, "age_s": round(self._clock() - self._at["lidar"], 1)}

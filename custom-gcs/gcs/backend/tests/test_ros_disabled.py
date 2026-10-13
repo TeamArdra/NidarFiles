@@ -139,7 +139,7 @@ class TestRosDependentReadsDegradeInsteadOfCrashing:
         with TestClient(app) as client:
             resp = client.get("/api/map")
         assert resp.status_code == 200
-        assert resp.json() == {"resolution": None, "width": None, "height": None, "data": None, "origin_x": None, "origin_y": None, "robot": None, "age_s": None}
+        assert resp.json() == {"resolution": None, "width": None, "height": None, "data": None, "origin_x": None, "origin_y": None, "robot": None, "age_s": None, "arena": None}
 
     def test_flight_test_status_returns_defaults(self):
         app = create_app(settings=_disabled_settings())

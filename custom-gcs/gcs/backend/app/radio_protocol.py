@@ -103,3 +103,17 @@ PARAM_TEXT_PREFIX = "PARAM: "
 # SLAM_POSE: <h x_cm><h y_cm><h yaw_cdeg> in the map frame (yaw CCW from +x).
 MAP_ROWS_TYPE = 0x8001
 SLAM_POSE_TYPE = 0x8002
+# ARENA_GRID (Jetson arena_grid.py): the map as the organiser's 1 m grid --
+# every cell edge WALL/OPEN/UNKNOWN, split into parts of <= 128 bytes:
+#   <B gen><B part><B nparts><h theta_cdeg><H offset_u_mm><H offset_v_mm>
+#   <h entry_u><h entry_v><b col0><b row0><B cols><B rows>
+#   + edges packed 2 bits each (0 unknown, 1 open, 2 wall; 4 per byte, first
+#   in the low bits). Edge stream: west edges row by row (rows x (cols + 1)),
+#   then south edges row by row ((rows + 1) x cols); part k carries edges
+#   k * ARENA_EDGES_PER_PART onwards. gen changes whenever the grid does.
+# Arena frame: u = x cos(theta) + y sin(theta), v = -x sin(theta) + y cos(theta)
+# (map frame x, y); grid lines at u = offset_u + k, v = offset_v + k; cell
+# (col, row) spans u in offset_u + entry_u + col .. +1 (same for v / row).
+# Cell (0, 0) is where the drone took off.
+ARENA_GRID_TYPE = 0x8003
+ARENA_EDGES_PER_PART = (128 - 17) * 4

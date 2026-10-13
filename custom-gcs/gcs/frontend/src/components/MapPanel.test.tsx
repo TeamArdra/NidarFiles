@@ -44,6 +44,46 @@ describe("MapPanel", () => {
     expect(await screen.findByTestId("map-canvas")).toBeInTheDocument();
   });
 
+  it("says the 1 m grid isn't aligned yet when the map has no arena grid", async () => {
+    mockMapApis({ resolution: 1, width: 2, height: 2, data: [0, 0, 0, 0] });
+    render(<MapPanel telemetry={null} />);
+
+    expect(await screen.findByText(/1 m grid: not aligned yet/)).toBeInTheDocument();
+  });
+
+  it("summarises the 1 m grid and the drone's cell when the Jetson sends one", async () => {
+    mockMapApis({
+      resolution: 0.25,
+      width: 8,
+      height: 8,
+      data: new Array(64).fill(0),
+      origin_x: -1,
+      origin_y: -1,
+      robot: { x: 1.2, y: 0.3, yaw_deg: 0 },
+      arena: {
+        theta_deg: 0,
+        offset_u: 0,
+        offset_v: 0,
+        entry_u: 0,
+        entry_v: 0,
+        col0: 0,
+        row0: 0,
+        cols: 2,
+        rows: 1,
+        v_edges: [[2, 1, 2]],
+        h_edges: [
+          [2, 0],
+          [2, 2],
+        ],
+      },
+    });
+    render(<MapPanel telemetry={null} />);
+
+    const summary = await screen.findByTestId("arena-grid-summary");
+    await waitFor(() => expect(summary).toHaveTextContent("1 m grid: 2 × 1 cells — 5 walls, 1 open, 1 unknown"));
+    expect(summary).toHaveTextContent("drone in cell (1, 0)");
+  });
+
   it("shows the explored percentage from telemetry.mapping when available", async () => {
     const width = 2;
     const height = 2;

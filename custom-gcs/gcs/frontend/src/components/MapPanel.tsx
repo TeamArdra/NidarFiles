@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Panel from "./Panel";
 import { getCoverage, getFrontiers, getMap, getPath } from "../api";
+import { arenaCounts, cellOf } from "../arenaGrid";
 import { renderOccupancyMapCanvas } from "../mapRender";
 import type {
   CoverageResponse,
@@ -63,6 +64,9 @@ export default function MapPanel({ telemetry }: { telemetry: TelemetryResponse |
   }, []);
 
   const hasMap = map?.data != null && map.data.length > 0 && map.width != null && map.height != null;
+  const arena = map?.arena ?? null;
+  const counts = arena ? arenaCounts(arena) : null;
+  const robotCell = arena && map?.robot ? cellOf(arena, map.robot.x, map.robot.y) : null;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -84,6 +88,7 @@ export default function MapPanel({ telemetry }: { telemetry: TelemetryResponse |
       cellPx: Math.max(3, Math.min(8, Math.floor(720 / Math.max(map.width ?? 1, map.height ?? 1)))),
       target: telemetry?.autonomy?.target ?? telemetry?.navigation?.target ?? null,
       frontiers: frontiers?.points ?? null,
+      arena: map.arena ?? null,
     });
   }, [map, coverage, path, frontiers, telemetry, hasMap]);
 
@@ -97,6 +102,19 @@ export default function MapPanel({ telemetry }: { telemetry: TelemetryResponse |
             {map!.age_s != null && ` — updated ${map!.age_s} s ago`}
             {map!.robot && ` — position ${map!.robot.x.toFixed(2)}, ${map!.robot.y.toFixed(2)} m, heading ${Math.round(map!.robot.yaw_deg)}°`}
             {telemetry?.mapping?.explored_pct != null && ` — ${telemetry.mapping.explored_pct}% searched`}
+          </div>
+          <div className="text-xs text-dim mb-2" data-testid="arena-grid-summary">
+            {arena && counts ? (
+              <>
+                1 m grid: {arena.cols} × {arena.rows} cells — {counts.walls} walls, {counts.open} open,{" "}
+                {counts.unknown} unknown
+                {robotCell && ` — drone in cell (${robotCell[0]}, ${robotCell[1]})`}
+                {` — cell (0, 0) = take-off, rotated ${arena.theta_deg.toFixed(1)}°`}
+                {arena.age_s != null && arena.age_s > 10 && ` — grid ${arena.age_s} s old`}
+              </>
+            ) : (
+              "1 m grid: not aligned yet — the Jetson needs a few walls in the map first"
+            )}
           </div>
           <div className="overflow-auto border border-border rounded">
             <canvas ref={canvasRef} data-testid="map-canvas" />

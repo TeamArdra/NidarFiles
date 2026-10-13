@@ -134,7 +134,7 @@ class TestSimulationMapCoveragePath:
     def test_map_before_any_data(self):
         client, _ = make_client()
         body = client.get("/api/simulation/map").json()
-        assert body == {"resolution": None, "width": None, "height": None, "data": None, "origin_x": None, "origin_y": None, "robot": None, "age_s": None}
+        assert body == {"resolution": None, "width": None, "height": None, "data": None, "origin_x": None, "origin_y": None, "robot": None, "age_s": None, "arena": None}
 
     def test_map_reflects_simulation_topic_not_real_map_topic(self):
         client, fake = make_client()

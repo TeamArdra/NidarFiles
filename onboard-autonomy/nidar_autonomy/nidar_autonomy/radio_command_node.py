@@ -30,6 +30,10 @@ Parameters:
   map_rate_hz          SLAM map packets (TUNNEL, <= ~145 B) per second while
                        Cartographer publishes /map (default 2.0; 0 = off)
   map_cell_m           map cell size sent to the GCS (default 0.25 m)
+  arena_rate_hz        1 m arena grid packets (TUNNEL ARENA_GRID, arena_grid.py)
+                       per second (default 1.0; 0 = off). The grid itself is
+                       recomputed from the latest /map every arena_period_s
+                       (default 3 s) on a worker thread.
   allow_param_write    true = the GCS Setup page may WRITE Pixhawk parameters
                        (bench only, `start_jetson.sh --setup`; refused while
                        armed or a mission runs). Reads are always answered.
@@ -58,8 +62,15 @@ from std_msgs.msg import String
 
 from .param_bridge_logic import addressed_to_jetson, refusal, typed_value
 from .radio_command_logic import CommandGate, Decision, Readiness
+from .arena_grid import Alignment, OccupancyMap, build_grid, estimate_alignment
 from .map_grid import coarsen
-from .radio_telemetry import DEFAULT_LIDAR_RATE_HZ, DEFAULT_MAP_RATE_HZ, DEFAULT_RATE_HZ, TelemetryRelay
+from .radio_telemetry import (
+    DEFAULT_ARENA_RATE_HZ,
+    DEFAULT_LIDAR_RATE_HZ,
+    DEFAULT_MAP_RATE_HZ,
+    DEFAULT_RATE_HZ,
+    TelemetryRelay,
+)
 from .rplidar_protocol import sectors_from_laserscan
 from .telem_command_codec import (
     JETSON_COMPONENT_ID,
@@ -143,6 +154,10 @@ class RadioCommandNode(Node):
         self._map_rate_hz = float(self.declare_parameter("map_rate_hz", DEFAULT_MAP_RATE_HZ).value)
         self._map_cell_m = float(self.declare_parameter("map_cell_m", 0.25).value)
         self._map_processed_at: Optional[float] = None
+        self._arena_rate_hz = float(self.declare_parameter("arena_rate_hz", DEFAULT_ARENA_RATE_HZ).value)
+        self._arena_period_s = float(self.declare_parameter("arena_period_s", 3.0).value)
+        self._latest_map: Optional[OccupancyGrid] = None
+        self._arena_alignment: Optional[Alignment] = None
         self._param_text_id = 0
 
         self._gate = CommandGate()
@@ -164,7 +179,7 @@ class RadioCommandNode(Node):
         self._last_rx_at: Optional[float] = None
         self._last_command: Optional[dict] = None
         self._telemetry = TelemetryRelay(
-            self._next_seq, time.monotonic(), self._lidar_rate_hz, self._map_rate_hz
+            self._next_seq, time.monotonic(), self._lidar_rate_hz, self._map_rate_hz, self._arena_rate_hz
         )
         # SLAM pose of the LiDAR = TF map -> laser (Cartographer), if running.
         self._tf_buffer = None
@@ -205,6 +220,12 @@ class RadioCommandNode(Node):
             self.create_timer(1.0 / self._telemetry_rate_hz, self._send_telemetry)
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
+        # The arena grid takes ~1 s of CPU on the Jetson: its own thread, so
+        # telemetry timers don't stall (commands are on the reader thread).
+        self._arena_worker = None
+        if self._arena_rate_hz > 0 and self._map_rate_hz > 0:
+            self._arena_worker = threading.Thread(target=self._arena_loop, daemon=True)
+            self._arena_worker.start()
 
         self.get_logger().info(
             f"[{_now()}] radio_command_node: port {self._port} "
@@ -260,6 +281,7 @@ class RadioCommandNode(Node):
         )
 
     def _on_map(self, msg: OccupancyGrid) -> None:
+        self._latest_map = msg  # the arena worker picks up the newest one
         now = time.monotonic()
         if self._map_rate_hz <= 0 or (self._map_processed_at is not None and now - self._map_processed_at < 1.0):
             return  # at most one reduction per second
@@ -270,6 +292,34 @@ class RadioCommandNode(Node):
             info.origin.position.x, info.origin.position.y, self._map_cell_m,
         )
         self._telemetry.update_map(now, meta, cells)
+
+    def _arena_loop(self) -> None:
+        done = None
+        while not self._stop.wait(self._arena_period_s):
+            msg = self._latest_map
+            if msg is None or msg is done:
+                continue
+            done = msg
+            try:
+                info = msg.info
+                m = OccupancyMap(
+                    msg.data, info.width, info.height, info.resolution,
+                    info.origin.position.x, info.origin.position.y,
+                )
+                al = estimate_alignment(m, near=self._arena_alignment)
+                if al is None:
+                    continue
+                if self._arena_alignment is None:
+                    self.get_logger().info(
+                        f"[{_now()}] arena grid aligned: {math.degrees(al.theta_rad):.1f} deg, "
+                        f"grid lines at {al.offset_u:.2f} / {al.offset_v:.2f} m"
+                    )
+                self._arena_alignment = al
+                grid = build_grid(m, al)
+                if grid is not None:
+                    self._telemetry.update_arena(time.monotonic(), grid)
+            except Exception as exc:  # noqa: BLE001 -- never take the radio node down
+                self.get_logger().error(f"[{_now()}] arena grid failed: {exc!r}")
 
     def _update_slam_pose(self) -> None:
         if self._tf_buffer is None:
@@ -562,6 +612,8 @@ class RadioCommandNode(Node):
         # shutdown (reported on the Jetson). Same order as lidar_node.
         self._stop.set()
         self._reader.join(timeout=1.0)
+        if self._arena_worker is not None:
+            self._arena_worker.join(timeout=2.0)
         self._close("node shutdown")
         return super().destroy_node()
 

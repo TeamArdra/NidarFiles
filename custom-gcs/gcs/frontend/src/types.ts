@@ -151,6 +151,34 @@ export interface MapResponse {
   origin_y?: number | null;
   robot?: { x: number; y: number; yaw_deg: number } | null;
   age_s?: number | null;
+  // The map as the organiser's 1 m grid (radio ARENA_GRID), if the Jetson
+  // has aligned one yet -- see ArenaGrid.
+  arena?: ArenaGrid | null;
+}
+
+// Edge states: 0 unknown, 1 open, 2 wall.
+export type ArenaEdge = 0 | 1 | 2;
+
+// The SLAM map as the organiser's 1 m arena grid (backend ArenaGridResponse).
+// Arena frame: u = x cos(theta) + y sin(theta), v = -x sin(theta) + y cos(theta)
+// in map-frame metres; cell (col, row) spans u from offset_u + entry_u + col,
+// v from offset_v + entry_v + row, 1 m each. Cell (0, 0) = take-off cell.
+// v_edges[r][k]: west edge of column col0 + k in row row0 + r (k = cols: east
+// edge of the last column); h_edges[k][c]: south edge of row row0 + k in
+// column col0 + c (k = rows: north edge of the last row).
+export interface ArenaGrid {
+  theta_deg: number;
+  offset_u: number;
+  offset_v: number;
+  entry_u: number;
+  entry_v: number;
+  col0: number;
+  row0: number;
+  cols: number;
+  rows: number;
+  v_edges: ArenaEdge[][];
+  h_edges: ArenaEdge[][];
+  age_s?: number | null;
 }
 
 // Same shape as MapResponse -- the coverage grid is also a
