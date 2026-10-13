@@ -21,6 +21,9 @@
 #   start_jetson.sh --map      LiDAR + Cartographer 2D SLAM: live map (and the
 #                              LiDAR's position on it) to the GCS Map panel;
 #                              implies --lidar. Works hand-held with --no-fcu.
+#                              With the Pixhawk connected, its IMU is used too
+#                              (if it streams fast enough); NIDAR_MAP_IMU=off
+#                              for LiDAR only.
 #   start_jetson.sh --lidar    also run the RPLIDAR A2 and send its scan to the
 #                              GCS over the radio (LiDAR panel)
 #   start_jetson.sh --setup    also let the GCS Setup page write Pixhawk
@@ -57,6 +60,16 @@ MAP_CELL_M="${NIDAR_MAP_CELL_M:-0.25}"
 # Ignore LiDAR returns closer than this (m): the person holding it, or the
 # drone's own frame/props. Applies to the LiDAR panel and the map.
 LIDAR_MIN_RANGE_M="${NIDAR_LIDAR_MIN_RANGE_M:-0.4}"
+# Map with the Pixhawk's IMU: auto = when the Pixhawk is connected and
+# /mavros/imu/data arrives at >= MAP_IMU_MIN_HZ; off = LiDAR only (e.g. the
+# Pixhawk sits on the bench while the LiDAR is carried around: its IMU would
+# say "not moving" and wreck the map). The LiDAR's position relative to the
+# Pixhawk (m, x forward, y left, z up) -- only used with the IMU.
+MAP_IMU="${NIDAR_MAP_IMU:-auto}"
+MAP_IMU_MIN_HZ="${NIDAR_MAP_IMU_MIN_HZ:-30}"
+LIDAR_X_M="${NIDAR_LIDAR_X_M:-0}"
+LIDAR_Y_M="${NIDAR_LIDAR_Y_M:-0}"
+LIDAR_Z_M="${NIDAR_LIDAR_Z_M:-0}"
 
 DRY_RUN=false
 SETUP=false
@@ -97,6 +110,11 @@ LIDAR_YAW_DEG="$(ros_double "$LIDAR_YAW_DEG")" || fail "NIDAR_LIDAR_YAW_DEG must
 MAP_RATE_HZ="$(ros_double "$MAP_RATE_HZ")" || fail "NIDAR_MAP_RATE_HZ must be a number (e.g. 2 or 1.0)"
 MAP_CELL_M="$(ros_double "$MAP_CELL_M")" || fail "NIDAR_MAP_CELL_M must be a number of metres (e.g. 0.25)"
 LIDAR_MIN_RANGE_M="$(ros_double "$LIDAR_MIN_RANGE_M")" || fail "NIDAR_LIDAR_MIN_RANGE_M must be a number of metres (e.g. 0.4)"
+case "$MAP_IMU" in auto|off) ;; *) fail "NIDAR_MAP_IMU must be auto or off" ;; esac
+MAP_IMU_MIN_HZ="$(ros_double "$MAP_IMU_MIN_HZ")" || fail "NIDAR_MAP_IMU_MIN_HZ must be a number (e.g. 30)"
+LIDAR_X_M="$(ros_double "$LIDAR_X_M")" || fail "NIDAR_LIDAR_X_M must be a number of metres (e.g. 0.05)"
+LIDAR_Y_M="$(ros_double "$LIDAR_Y_M")" || fail "NIDAR_LIDAR_Y_M must be a number of metres (e.g. 0)"
+LIDAR_Z_M="$(ros_double "$LIDAR_Z_M")" || fail "NIDAR_LIDAR_Z_M must be a number of metres (e.g. 0.1)"
 
 cleanup() {
   say "stopping ${#PIDS[@]} processes"
@@ -159,7 +177,7 @@ fi
 # Leftovers hold the radio/LiDAR ports (the probe then reports "no RPLIDAR
 # answered") and a second radio_command_node would fight over the radio.
 # MAVROS is not in this list: it is reused on purpose.
-OURS='lib/nidar_autonomy/(radio_command_node|lidar_node|command_node|heartbeat_node)|missions/(hover|motor_test)/mission\.py|cartographer_(node|occupancy_grid_node)'
+OURS='lib/nidar_autonomy/(radio_command_node|lidar_node|command_node|heartbeat_node)|missions/(hover|motor_test)/mission\.py|cartographer_(node|occupancy_grid_node)|static_transform_publisher.*laser'
 if pgrep -f "$OURS" >/dev/null; then
   say "STOP: parts of an earlier stack are still running:"
   pgrep -af "$OURS" | sed 's/^/    /'
@@ -234,13 +252,43 @@ elif $MAP; then
   else
     CARTO_DIR="$LOG_DIR/cartographer"
     mkdir -p "$CARTO_DIR"
-    cp "$CARTO_SHARE/revo_lds.lua" "$NIDAR_DIR/scripts/jetson/cartographer/nidar_2d.lua" "$CARTO_DIR/"
+    cp "$CARTO_SHARE/revo_lds.lua" "$NIDAR_DIR/scripts/jetson/cartographer/nidar_2d.lua" \
+      "$NIDAR_DIR/scripts/jetson/cartographer/nidar_2d_imu.lua" "$CARTO_DIR/"
     sed -i "s/^TRAJECTORY_BUILDER_2D.min_range = .*/TRAJECTORY_BUILDER_2D.min_range = $LIDAR_MIN_RANGE_M/" "$CARTO_DIR/nidar_2d.lua"
+    CARTO_CONFIG=nidar_2d.lua
+    CARTO_ARGS=()
+    SLAM_KIND="LiDAR only"
+    if [ "$MAP_IMU" = off ]; then
+      say "MAP: NIDAR_MAP_IMU=off -- LiDAR-only SLAM"
+    elif $NO_FCU; then
+      say "MAP: no Pixhawk -- LiDAR-only SLAM"
+    else
+      # Stream rates reset whenever the Pixhawk/MAVROS restarts: ask for the
+      # IMU at 50 Hz -- ATTITUDE (30) drives /mavros/imu/data, RAW_IMU (27)
+      # gives it its acceleration -- then measure what actually arrives.
+      for msg_id in 30 27; do
+        timeout 10 ros2 service call /mavros/set_message_interval mavros_msgs/srv/MessageInterval \
+          "{message_id: $msg_id, message_rate: 50.0}" >/dev/null 2>&1 \
+          || say "WARNING: could not ask the Pixhawk for MAVLink message $msg_id at 50 Hz"
+      done
+      say "MAP: measuring the Pixhawk IMU rate (8 s)"
+      IMU_HZ="$(timeout 8 ros2 topic hz /mavros/imu/data 2>/dev/null | awk '/average rate/ {r = $3} END {print r + 0}')"
+      if awk -v r="$IMU_HZ" -v m="$MAP_IMU_MIN_HZ" 'BEGIN {exit !(r >= m)}'; then
+        CARTO_CONFIG=nidar_2d_imu.lua
+        CARTO_ARGS=(--ros-args -r imu:=/mavros/imu/data)
+        SLAM_KIND="LiDAR + Pixhawk IMU"
+        run lidar_tf ros2 run tf2_ros static_transform_publisher \
+          --x "$LIDAR_X_M" --y "$LIDAR_Y_M" --z "$LIDAR_Z_M" --frame-id base_link --child-frame-id laser
+        say "MAP: using the Pixhawk IMU (/mavros/imu/data at $IMU_HZ Hz) -- the Pixhawk must move WITH the LiDAR"
+      else
+        say "WARNING: Pixhawk IMU at $IMU_HZ Hz (need $MAP_IMU_MIN_HZ) -- LiDAR-only SLAM"
+      fi
+    fi
     run cartographer ros2 run cartographer_ros cartographer_node \
-      -configuration_directory "$CARTO_DIR" -configuration_basename nidar_2d.lua
+      -configuration_directory "$CARTO_DIR" -configuration_basename "$CARTO_CONFIG" "${CARTO_ARGS[@]}"
     run cartographer_grid ros2 run cartographer_ros cartographer_occupancy_grid_node \
       -resolution 0.1 -publish_period_sec 1.0
-    say "MAP: Cartographer SLAM running -> /map -> GCS Map panel (${MAP_CELL_M} m cells)"
+    say "MAP: Cartographer SLAM ($SLAM_KIND) running -> /map -> GCS Map panel (${MAP_CELL_M} m cells)"
   fi
 fi
 

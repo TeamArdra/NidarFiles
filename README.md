@@ -340,8 +340,15 @@ without it (`WARNING: no RPLIDAR answered`).
 ~/NidarFiles/scripts/jetson/start_jetson.sh --map                      # on the drone
 ```
 
-`--map` runs the LiDAR (`--lidar` is implied) and **Cartographer** 2D SLAM
-(LiDAR only — no Pixhawk, IMU or odometry needed). Cartographer builds the
+`--map` runs the LiDAR (`--lidar` is implied) and **Cartographer** 2D SLAM.
+**With the Pixhawk connected** (no `--no-fcu`), the script asks it for the
+IMU at 50 Hz, measures `/mavros/imu/data` for 8 s, and if it gets ≥ 30 Hz
+Cartographer also uses the **Pixhawk IMU** (levels tilted scans, keeps up with
+fast turns -- needed in flight). Otherwise, or with `--no-fcu`, it's **LiDAR
+only** (fine hand-held). The start-up log says which: `Cartographer SLAM
+(LiDAR + Pixhawk IMU)` or `(LiDAR only)`. The IMU only helps if the Pixhawk
+moves **with** the LiDAR -- Pixhawk on the bench while you carry the LiDAR:
+`NIDAR_MAP_IMU=off`. Cartographer builds the
 map and works out where the LiDAR is; the Jetson shrinks the map to
 **0.25 m cells** (wall / free / unknown) and sends only changed rows over the
 radio (~100–300 B/s), plus the LiDAR's position and heading. The GCS **Map**
@@ -359,8 +366,14 @@ Needs Cartographer once: `setup_jetson.sh` installs
 (map packets per second, default 2), `NIDAR_MAP_CELL_M` (default 0.25; the
 competition grid is 1 m), `NIDAR_LIDAR_MIN_RANGE_M` (default 0.4 m: closer
 returns are ignored -- the person holding the LiDAR, or the drone's own
-frame/props; raise it if a white blob follows the blue dot). Cartographer's
-log: `cartographer.log`.
+frame/props; raise it if a white blob follows the blue dot). With the IMU:
+`NIDAR_MAP_IMU` (`auto` / `off`), `NIDAR_MAP_IMU_MIN_HZ` (default 30), and
+the LiDAR's position from the Pixhawk `NIDAR_LIDAR_X_M` / `_Y_M` / `_Z_M`
+(metres, x forward, y left, z up; default 0). `NIDAR_LIDAR_YAW_DEG` must be
+right: the IMU and the scan have to agree on which way is forward. If the map
+never appears with the IMU, run once with `NIDAR_MAP_IMU=off` to confirm the
+LiDAR side works, then check `ros2 topic echo --once /mavros/imu/data`
+(frame_id should be `base_link`). Cartographer's log: `cartographer.log`.
 
 Reading the map: dark = free space seen through, white = walls/obstacles,
 grey = not seen yet. Walls fill in as you walk along them; a wall seen

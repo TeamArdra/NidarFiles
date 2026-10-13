@@ -88,7 +88,11 @@ BATTERY_TOPIC = "/mavros/battery"
 # mission depends on fresh local position.
 STREAM_RATES_HZ = {
     32: 20.0,  # LOCAL_POSITION_NED -> /mavros/local_position/pose
-    30: 10.0,  # ATTITUDE
+    # ATTITUDE drives /mavros/imu/data and RAW_IMU gives it its acceleration:
+    # Cartographer uses that IMU (start_jetson.sh --map), so a START must not
+    # drop it below the 50 Hz start_jetson.sh asked for.
+    30: 50.0,  # ATTITUDE
+    27: 50.0,  # RAW_IMU
     1: 2.0,  # SYS_STATUS
     147: 1.0,  # BATTERY_STATUS -> /mavros/battery
     49: 1.0,  # GPS_GLOBAL_ORIGIN -> /mavros/global_position/gp_origin (once set)
