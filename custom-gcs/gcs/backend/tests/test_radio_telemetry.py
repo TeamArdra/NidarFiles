@@ -562,3 +562,43 @@ def test_api_map_carries_the_arena_grid():
     with TestClient(app) as client:
         arena = client.get("/api/map").json()["arena"]
     assert arena["theta_deg"] == -2.5 and arena["v_edges"] == [[2, 2]] and arena["h_edges"] == [[1], [1]]
+
+
+# -- Components panel ------------------------------------------------------------------
+
+
+def by_key(components):
+    return {c["key"]: c for c in components}
+
+
+def test_components_missing_until_heard():
+    c = by_key(RadioTelemetryClient(Clock()).components())
+    assert list(c) == ["jetson", "fcu", "battery", "position", "orientation", "lidar", "map"]
+    assert all(v["status"] == "missing" and v["age_s"] is None for v in c.values())
+
+
+def test_components_ok_with_details_then_lost():
+    clock = Clock()
+    client = RadioTelemetryClient(clock)
+    _feed(client, jetson_heartbeat(0), fcu_heartbeat(armed=True, mode=4), battery(mv=15800),
+          position(), attitude(), lidar_scan([500] * 72), map_rows(25, 0, 0, 4, 3, 0, [1] * 12))
+    c = by_key(client.components())
+    assert all(v["status"] == "ok" for v in c.values())
+    assert c["fcu"]["detail"] == "GUIDED, ARMED"
+    assert c["battery"]["detail"] == "15.80 V"
+    assert c["map"]["detail"] == "4 x 3 cells @ 0.25 m"
+    clock.t += 6.0  # past every limit but the map's
+    c = by_key(client.components())
+    assert c["lidar"]["status"] == "lost" and c["lidar"]["age_s"] == 6.0 and c["lidar"]["detail"] is None
+    assert c["fcu"]["status"] == "lost" and c["map"]["status"] == "ok"
+
+
+def test_api_components():
+    telemetry = RadioTelemetryClient()
+    _feed(telemetry, jetson_heartbeat(0), fcu_heartbeat())
+    app = create_app(client=telemetry, radio=FakeRadioLink(), settings=Settings())
+    with TestClient(app) as client:
+        body = client.get("/api/components").json()
+    assert body["available"] is True
+    c = by_key(body["components"])
+    assert c["jetson"]["status"] == "ok" and c["fcu"]["status"] == "ok" and c["lidar"]["status"] == "missing"

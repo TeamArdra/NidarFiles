@@ -3,6 +3,7 @@ import { getHealth } from "./api";
 import { useTelemetry } from "./hooks/useTelemetry";
 import SetupPanel from "./components/SetupPanel";
 import ConnectionPanel from "./components/ConnectionPanel";
+import ComponentsPanel from "./components/ComponentsPanel";
 import FlightPanel from "./components/FlightPanel";
 import MissionPanel from "./components/MissionPanel";
 import ControlsPanel from "./components/ControlsPanel";
@@ -107,6 +108,7 @@ export default function App() {
         className={view === "mission" ? "grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-3" : "hidden"}
       >
         <ConnectionPanel telemetry={telemetry} />
+        <ComponentsPanel />
         <FlightPanel telemetry={telemetry} />
         <MissionPanel telemetry={telemetry} />
         <ControlsPanel telemetry={telemetry} />

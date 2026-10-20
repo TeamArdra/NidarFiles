@@ -76,7 +76,7 @@ export default function LidarPanel() {
   return (
     <Panel title="LiDAR (live, over the radio)">
       {!scan?.available ? (
-        <div className="text-dim text-sm">No LiDAR scan — start the Jetson with start_jetson.sh --lidar.</div>
+        <div className="text-dim text-sm">No LiDAR scan — check the LiDAR is plugged into the Jetson (start_jetson.sh runs it unless --no-lidar).</div>
       ) : (
         <>
           <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="w-full max-w-[320px] mx-auto block" role="img" aria-label="LiDAR scan">

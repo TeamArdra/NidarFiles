@@ -34,6 +34,6 @@ describe("LidarPanel", () => {
   it("says how to get a scan when none is arriving", async () => {
     vi.spyOn(api, "getLidar").mockResolvedValue({ ...scan({}), available: false });
     render(<LidarPanel />);
-    expect(await screen.findByText(/start_jetson.sh --lidar/)).toBeInTheDocument();
+    expect(await screen.findByText(/check the LiDAR is plugged into the Jetson/)).toBeInTheDocument();
   });
 });

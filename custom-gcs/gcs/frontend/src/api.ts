@@ -5,6 +5,7 @@
 
 import type {
   CameraStatusResponse,
+  ComponentsResponse,
   CoverageResponse,
   FlightTestStatusResponse,
   FrontiersResponse,
@@ -59,6 +60,10 @@ export function getTelemetry(): Promise<TelemetryResponse> {
 
 export function getLidar(): Promise<LidarResponse> {
   return getJson<LidarResponse>("/api/lidar");
+}
+
+export function getComponents(): Promise<ComponentsResponse> {
+  return getJson<ComponentsResponse>("/api/components");
 }
 
 export function getMap(): Promise<MapResponse> {

@@ -145,7 +145,7 @@ export interface MapResponse {
   width: number | null;
   height: number | null;
   data: number[] | null;
-  // Radio SLAM map only (start_jetson.sh --map): map-frame origin of cell
+  // Radio SLAM map only (start_jetson.sh, unless --no-map): map-frame origin of cell
   // (0,0), the LiDAR/drone pose from SLAM, and how old the map is.
   origin_x?: number | null;
   origin_y?: number | null;
@@ -402,4 +402,21 @@ export interface LidarResponse {
   min_cm: number | null;
   max_cm: number | null;
   distances_cm: (number | null)[];
+}
+
+// /api/components: every drone part the GCS hears from over the radio.
+// "ok" = its data keeps arriving, "lost" = it stopped, "missing" = never heard.
+export type ComponentState = "ok" | "lost" | "missing";
+
+export interface ComponentStatus {
+  key: string;
+  name: string;
+  status: ComponentState;
+  age_s: number | null;
+  detail: string | null;
+}
+
+export interface ComponentsResponse {
+  available: boolean;
+  components: ComponentStatus[];
 }

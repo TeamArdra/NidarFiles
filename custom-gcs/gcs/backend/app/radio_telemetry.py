@@ -79,6 +79,20 @@ SLAM_POSE_STALE_S = 3.0
 # No map packet for this long, then a new geometry = a new SLAM map (Jetson
 # restarted): start empty instead of shifting the old cells into it.
 MAP_RESTART_S = 15.0
+# Map packets (2 Hz) keep coming while Cartographer runs.
+MAP_STALE_S = 10.0
+
+# The Components panel: (store key, name on the GCS, fresh for this long).
+# A part counts as connected while its data keeps arriving over the radio.
+COMPONENTS = (
+    ("jetson", "Radio link (GCS ↔ Jetson)", JETSON_LINK_TIMEOUT_S),
+    ("fcu", "Pixhawk (flight controller)", FCU_STALE_S),
+    ("battery", "Battery monitor", BATTERY_STALE_S),
+    ("position", "Position estimate (optical flow + rangefinder)", POSE_STALE_S),
+    ("orientation", "IMU / attitude", ATTITUDE_STALE_S),
+    ("lidar", "LiDAR (RPLIDAR A2)", LIDAR_STALE_S),
+    ("map", "SLAM map (Cartographer)", MAP_STALE_S),
+)
 # OccupancyGrid values the Map panel already draws
 _GRID_VALUE = {0: -1, 1: 0, 2: 100}
 _MAP_HEADER = struct.Struct("<HhhBBBB")
@@ -374,6 +388,36 @@ class RadioTelemetryClient:
                 scan = self._fresh("lidar", LIDAR_STALE_S)
                 return None if scan is None else {**scan, "age_s": round(self._clock() - self._at["lidar"], 1)}
             return None
+
+    def components(self) -> list[dict]:
+        """Every drone part the GCS hears from: "ok" while its data keeps
+        arriving, "lost" once it stopped, "missing" if never heard."""
+        with self._lock:
+            now = self._clock()
+            out = []
+            for key, name, limit in COMPONENTS:
+                at = self._at.get(key)
+                if at is None:
+                    status, age = "missing", None
+                else:
+                    age = round(now - at, 1)
+                    status = "ok" if now - at < limit else "lost"
+                detail = self._component_detail(key) if status == "ok" else None
+                out.append({"key": key, "name": name, "status": status, "age_s": age, "detail": detail})
+            return out
+
+    def _component_detail(self, key: str) -> Optional[str]:
+        value = self._values.get(key)
+        if key == "jetson":
+            return f"mission {value}"
+        if key == "fcu":
+            return f"{value['mode']}, {'ARMED' if value['armed'] else 'disarmed'}"
+        if key == "battery" and value.get("voltage") is not None:
+            return f"{value['voltage']:.2f} V"
+        if key == "map" and self._map_meta is not None:
+            cell_cm, _, _, w, h = self._map_meta
+            return f"{w} x {h} cells @ {cell_cm / 100:g} m"
+        return None
 
     def _fcu_state(self) -> Optional[dict]:
         if "jetson" not in self._at and "fcu" not in self._at:

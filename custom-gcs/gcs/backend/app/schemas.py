@@ -394,6 +394,25 @@ class RadioLastCommand(BaseModel):
     time: str = ""
 
 
+class ComponentStatus(BaseModel):
+    """One drone part on the Components panel. status: "ok" (its data keeps
+    arriving), "lost" (it stopped), "missing" (never heard)."""
+
+    key: str
+    name: str
+    status: str
+    age_s: float | None = None
+    detail: str | None = None
+
+
+class ComponentsResponse(BaseModel):
+    """available=False: not on the radio telemetry path (rosbridge/sim),
+    where the Components panel has nothing to report."""
+
+    available: bool = False
+    components: list[ComponentStatus] = []
+
+
 class RadioStatusResponse(BaseModel):
     enabled: bool
     port: str | None = None

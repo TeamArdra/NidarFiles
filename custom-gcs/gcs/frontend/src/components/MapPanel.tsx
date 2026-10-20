@@ -122,8 +122,9 @@ export default function MapPanel({ telemetry }: { telemetry: TelemetryResponse |
         </div>
       ) : (
         <div className="text-dim text-xs">
-          No map data yet — start the Jetson with start_jetson.sh --map (LiDAR + Cartographer SLAM);
-          the map then arrives over the radio and grows as the LiDAR moves.
+          No map data yet — start_jetson.sh runs the map by default (LiDAR + Cartographer SLAM;
+          not with --no-map / --no-lidar). It arrives over the radio and grows as the LiDAR moves.
+          See the Components panel for what is connected.
         </div>
       )}
     </Panel>

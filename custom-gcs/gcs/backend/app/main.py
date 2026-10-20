@@ -123,6 +123,7 @@ from .schemas import (
     PoseResponse,
     PositionResponse,
     RadioCommandResponse,
+    ComponentsResponse,
     RadioStatusResponse,
     SensorsResponse,
     SimulationCommandResponse,
@@ -505,6 +506,12 @@ def create_app(
     @app.get("/api/radio/status", response_model=RadioStatusResponse, tags=["command"])
     def radio_status() -> RadioStatusResponse:
         return RadioStatusResponse(**radio.status())
+
+    @app.get("/api/components", response_model=ComponentsResponse, tags=["telemetry"])
+    def components() -> ComponentsResponse:
+        if not isinstance(ros_client, RadioTelemetryClient):
+            return ComponentsResponse()
+        return ComponentsResponse(available=True, components=ros_client.components())
 
     # -- Bench Setup page (GCS_SETUP_ENABLED only) ----------------------------
     #
