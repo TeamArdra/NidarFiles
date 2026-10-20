@@ -178,6 +178,8 @@ class HoverMission:
             return []
 
         if self.state == ARMING:
+            if self._pilot_switched(snap):
+                return self._pilot_override(f"flight mode changed to {snap.mode} while arming -- pilot has control")
             if now > self._deadline:
                 self._fail(f"ARM not confirmed within {self.config.arm_timeout_s:.0f}s")
                 return [Action("disarm")]
@@ -211,12 +213,16 @@ class HoverMission:
     def on_result(self, now: float, kind: str, ok: bool, detail: str) -> List[Action]:
         """Outcome of an Action the node executed."""
         if kind == "arm":
+            if self.state == PILOT_OVERRIDE:
+                return []  # the pilot flipped the mode switch while arming: theirs to fly or disarm
             if self.state != ARMING:
                 # e.g. ABORT arrived while the arm request was in flight
                 return [Action("disarm")] if ok else []
             if not ok:
                 self._fail(f"ARM failed: {detail}")
                 return [Action("disarm")]  # defensive: FCU/state mismatch is possible
+            if self._pilot_switched(self._snap):
+                return self._pilot_override(f"flight mode changed to {self._snap.mode} while arming -- pilot has control")
             if self._snap is not None and self._snap.position is not None:
                 self._ground = self._snap.position
             self.state = TAKING_OFF
@@ -230,6 +236,9 @@ class HoverMission:
             if ok:
                 self._takeoff_acked = True
                 return []
+            if self._pilot_switched(self._snap):
+                # rejected because the pilot left GUIDED: don't command LAND under them
+                return self._pilot_override(f"TAKEOFF rejected in {self._snap.mode} -- pilot has control")
             return self._land(now, f"TAKEOFF rejected ({detail}) -- landing", FAILED)
 
         if kind == "set_mode" and not ok:
@@ -368,6 +377,16 @@ class HoverMission:
         self._landing_started = now
         self._last_land_request = now
         return [Action("set_mode", LAND)]
+
+    @staticmethod
+    def _pilot_switched(snap: Optional[VehicleSnapshot]) -> bool:
+        """A known mode other than GUIDED/LAND: someone on the RC switch."""
+        return snap is not None and snap.mode not in (None, GUIDED, LAND)
+
+    def _pilot_override(self, reason: str) -> List[Action]:
+        self.state = PILOT_OVERRIDE
+        self.detail = reason
+        return []
 
     def _fail(self, reason: str) -> List[Action]:
         self.state = FAILED

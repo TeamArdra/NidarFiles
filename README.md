@@ -446,6 +446,29 @@ pulling the battery. That is why:
 - The mission follows any LAND the Pixhawk starts by itself and never overrides it.
 - Don't run `mission_state_node` with this stack (it would arm on START by itself); the scripts refuse.
 
+### 10.1 With an RC safety pilot (recommended)
+
+A transmitter + receiver (on the Pixhawk's RC IN) lets a pilot take over:
+**flip the mode switch** and the drone is theirs. The sticks alone do
+nothing in GUIDED (ArduCopter ignores roll/pitch/throttle there) — the
+**switch** is the take-over. The mission sees the mode leave GUIDED,
+reports `pilot_override` on the GCS and stops commanding; it never
+switches back. Set up with `flight_params.py --rc --apply` (section 11):
+
+| Switch | Mode | What the pilot gets |
+|---|---|---|
+| low (`FLTMODE1`) | **Stabilize** | full manual: sticks = attitude, **throttle stick = throttle** |
+| middle (`FLTMODE4`) | AltHold | holds height; sticks move it |
+| high (`FLTMODE6`) | Loiter | holds position on optical flow; sticks move it |
+
+- **Throttle stick at the bottom for START** (ArduCopter refuses to arm with the throttle up). **Once airborne, move it to about the middle and keep it there** — GUIDED ignores it, so this is harmless.
+- **Before flipping to Stabilize, the throttle stick must be near hover (~middle).** Stabilize takes the throttle straight from the stick: a stick at the bottom drops the drone. AltHold/Loiter are the gentler take-over (centre stick = hold).
+- **RC signal lost → LAND** (`FS_THR_ENABLE=3`).
+- **Jetson dies while the pilot is flying → the pilot keeps control** (`FS_OPTIONS` bit 16). In GUIDED (no pilot) it still lands after 3 s.
+- Keep "RC Channels" **ticked** in `ARMING_CHECK` and calibrate the radio in Mission Planner (Setup → Mandatory Hardware → Radio Calibration). Transmitter **on before** powering the drone.
+- Strongly suggested: a **motor emergency stop** switch on a spare channel (`RCx_OPTION=31`, e.g. `RC7_OPTION=31`).
+- Competition note: the operator may only START/abort — any manual input costs **−50**. The RC is a safety backup, not a way to fly the mission.
+
 ## 11. Pre-flight checklist (first hover)
 
 All with the drone **fully assembled** (Jetson, wiring and battery mounted
@@ -457,14 +480,15 @@ change the magnetic field — calibrate after assembly, never before).
 | 1 | Power-up check | power up **still**, wait 2 min; `start_jetson.sh --dry-run` + GCS: LINK UP, Pixhawk connected, position shown, battery ≥ 15.2 V |
 | 2 | Accelerometer calibration | Mission Planner (USB) → Setup → Mandatory Hardware → Accel Calibration, 6 positions |
 | 3 | Compass calibration | … → Compass → Start, rotate in every direction away from metal; `Check mag field` gone after reboot |
-| 4 | Arming without RC | if Messages shows an `RC …` PreArm: Mission Planner → `ARMING_CHECK` checkbox list → untick **only "RC Channels"** |
+| 4 | RC (section 10.1) | **With RC:** Radio Calibration, mode switch on `FLTMODE_CH`, check each switch position shows Stabilize / AltHold / Loiter in Mission Planner (after step 7). **Without RC:** if Messages shows an `RC …` PreArm, `ARMING_CHECK` → untick **only "RC Channels"** |
 | 5 | **Optical flow direction** | carry the drone ~1 m **forward**, then **sideways**: Position x/y must change the matching way and stop when you stop; if reversed/swapped set `FLOW_ORIENT_YAW` (e.g. 18000 if mounted rotated 180°) and repeat |
 | 5b | **Altitude check** | note Position **z** with the drone on the floor; lift it (level, still) to **0.5 m** and **1.0 m** above the floor (tape measure) for ~10 s each: z must rise by about that much (±0.15 m) and stay steady. Jumpy or off by > 0.3 m → baro is too noisy indoors: set `EK3_SRC1_POSZ=2` (rangefinder height) and repeat |
 | 6 | Motor Test | Jetson live; section 7.2: order A-B-C-D, A/C counter-clockwise, B/D clockwise |
-| 7 | Flight parameters | `flight_params.py --apply`, reboot the Pixhawk, `flight_params.py` → `ALL OK` (CHECK items fixed in Mission Planner) |
+| 7 | Flight parameters | `flight_params.py --apply` (**`--rc --apply`** with an RC pilot), reboot the Pixhawk, run the same check again → `ALL OK` (CHECK items fixed in Mission Planner) |
 | 8 | Bench Hover START | Jetson live, props off: GUIDED → ARM → TAKEOFF accepted, then `landed and disarmed (target altitude not reached…)` — expected without props |
 | 9 | **Jetson-loss failsafe test** | props off: Hover START; while `taking_off`, press **Ctrl+C** on the Jetson stack. Within ~3 s the Pixhawk must switch to **LAND** and disarm (watch in Mission Planner over USB). Restart the stack afterwards |
-| 10 | First hover | **props on, tethered**, people clear, take-off mat lit; Jetson live; Hover START, finger on ABORT |
+| 9b | **RC take-over test** (with RC) | props off: Hover START; while `taking_off` flip the switch to Stabilize → GCS shows `pilot_override`, Mission Planner shows STABILIZE, the Jetson sends nothing more. Then switch off the transmitter → mode LAND (RC failsafe). Disarm |
+| 10 | First hover | **props on, tethered**, people clear, take-off mat lit; Jetson live; Hover START, finger on ABORT (and the pilot on the switch, throttle near middle) |
 
 ## 12. Troubleshooting
 

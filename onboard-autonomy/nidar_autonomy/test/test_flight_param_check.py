@@ -1,4 +1,4 @@
-"""Flight parameter rules for the no-RC setup (flight_param_check.py)."""
+"""Flight parameter rules, no-RC and RC safety pilot (flight_param_check.py)."""
 from nidar_autonomy.flight_param_check import evaluate, names, report
 
 GOOD = {
@@ -59,3 +59,40 @@ def test_missing_values_are_unknown_not_fixed():
     r = by_name(evaluate(values, 1))["FS_GCS_TIMEOUT"]
     assert not r.ok and r.value is None and r.fix is None
     assert "UNKNOWN" in report(evaluate(values, 1))
+
+
+# -- RC safety pilot (--rc) --
+
+GOOD_RC = dict(GOOD, FS_THR_ENABLE=3, FS_OPTIONS=16, FLTMODE1=0, FLTMODE4=2, FLTMODE6=5,
+               FLTMODE_CH=5, RC3_MIN=982)
+
+
+def test_rc_rules_cover_the_good_rc_set():
+    assert set(names(rc=True)) == set(GOOD_RC)
+
+
+def test_good_rc_configuration_is_all_ok():
+    results = evaluate(GOOD_RC, mavros_system_id=1, rc=True)
+    assert all(r.ok for r in results)
+    assert "RC safety pilot" in report(results, rc=True)
+
+
+def test_no_rc_failsafe_setting_is_fixed_for_rc():
+    r = by_name(evaluate(dict(GOOD_RC, FS_THR_ENABLE=0), 1, rc=True))
+    assert r["FS_THR_ENABLE"].fix == 3.0
+
+
+def test_fs_options_keeps_other_bits_when_fixed():
+    r = by_name(evaluate(dict(GOOD_RC, FS_OPTIONS=8), 1, rc=True))["FS_OPTIONS"]
+    assert not r.ok and r.fix == 24.0
+    assert by_name(evaluate(dict(GOOD_RC, FS_OPTIONS=24), 1, rc=True))["FS_OPTIONS"].ok
+
+
+def test_uncalibrated_rc_is_check_only():
+    r = by_name(evaluate(dict(GOOD_RC, RC3_MIN=0), 1, rc=True))["RC3_MIN"]
+    assert not r.ok and r.fix is None
+
+
+def test_no_rc_setup_is_unchanged():
+    assert "FS_OPTIONS" not in names()
+    assert by_name(evaluate(GOOD, 1))["FS_THR_ENABLE"].ok

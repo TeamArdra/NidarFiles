@@ -230,6 +230,36 @@ class TestLanding:
         m.tick(t + 11, at_height(0.4, mode="LOITER"))
         assert m.state == PILOT_OVERRIDE
 
+    def test_pilot_switch_while_arming_stops_the_mission(self):
+        m = HoverMission(CFG)
+        m.start(0, snap(mode=GUIDED))
+        assert m.tick(0.5, snap(mode="STABILIZE")) == []
+        assert m.state == PILOT_OVERRIDE
+        # the arm request still completes: no takeoff, no disarm under the pilot
+        assert m.on_result(1.0, "arm", True, "ok") == []
+        assert m.state == PILOT_OVERRIDE
+
+    def test_arm_result_after_pilot_switch_sends_no_takeoff(self):
+        m = HoverMission(CFG)
+        m.start(0, snap(mode=GUIDED))
+        m._snap = snap(mode="STABILIZE")  # switch seen in the snapshot, tick not run yet
+        assert m.on_result(0.5, "arm", True, "ok") == []
+        assert m.state == PILOT_OVERRIDE
+
+    def test_takeoff_rejected_because_pilot_switched_is_not_landed(self):
+        m = HoverMission(CFG)
+        m.start(0, snap(mode=GUIDED))
+        assert m.on_result(0.5, "arm", True, "ok") == [Action("takeoff", 0.5)]
+        m._snap = snap(mode="STABILIZE", armed=True)
+        assert m.on_result(0.6, "takeoff", False, "denied") == []
+        assert m.state == PILOT_OVERRIDE
+
+    def test_takeoff_rejected_in_guided_still_lands(self):
+        m = HoverMission(CFG)
+        m.start(0, snap(mode=GUIDED))
+        m.on_result(0.5, "arm", True, "ok")
+        assert m.on_result(0.6, "takeoff", False, "denied") == [Action("set_mode", LAND)]
+
     def test_can_start_again_after_completion(self):
         m, t = airborne()
         m.tick(t + 10, at_height(0.5))

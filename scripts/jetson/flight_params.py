@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Check (and with --apply, set) the Pixhawk parameters a no-RC flight
-needs: Jetson-loss -> LAND, battery/EKF failsafes -> LAND, flight battery
-limits, and the optical-flow / EKF setup. Rules: nidar_autonomy/
-flight_param_check.py.
+"""Check (and with --apply, set) the Pixhawk parameters a flight needs:
+Jetson-loss -> LAND, battery/EKF failsafes -> LAND, flight battery
+limits, and the optical-flow / EKF setup. With --rc (an RC safety pilot
+on board): RC loss -> LAND, the pilot keeps control if the Jetson dies,
+and the mode switch gets Stabilize / AltHold / Loiter. Rules:
+nidar_autonomy/flight_param_check.py.
 
 Needs the Jetson stack running (MAVROS connected). Run in a second terminal:
 
-    ~/NidarFiles/scripts/jetson/flight_params.py            # check only
-    ~/NidarFiles/scripts/jetson/flight_params.py --apply    # set what is missing (disarmed only)
+    ~/NidarFiles/scripts/jetson/flight_params.py                # check only (no RC)
+    ~/NidarFiles/scripts/jetson/flight_params.py --apply        # set what is missing (disarmed only)
+    ~/NidarFiles/scripts/jetson/flight_params.py --rc --apply   # same, with an RC safety pilot
 
 --apply refuses while the vehicle is armed or its state is unknown, sets
 only the "FIX" items, reads them back, and prints the result. Some
@@ -103,6 +106,7 @@ class Tool(Node):
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--apply", action="store_true", help="set the FIX items (vehicle must be disarmed)")
+    parser.add_argument("--rc", action="store_true", help="an RC safety pilot is on board (RC failsafe, mode switch)")
     args = parser.parse_args()
 
     rclpy.init()
@@ -113,14 +117,14 @@ def main() -> int:
             print("STOP: MAVROS is not connected to the Pixhawk -- start start_jetson.sh first.")
             return 2
         sysid = tool.mavros_system_id()
-        wanted = names(sysid)
+        wanted = names(sysid, args.rc)
         values = tool.read(wanted)
         if not values:
             print("STOP: could not read parameters from MAVROS (/mavros/param) -- is the parameter list loaded yet?")
             return 2
-        results = evaluate({n: v for n, (v, _) in values.items()}, sysid)
+        results = evaluate({n: v for n, (v, _) in values.items()}, sysid, args.rc)
         print(f"MAVROS system_id = {sysid} (the Pixhawk's SYSID_MYGCS must match)\n")
-        print(report(results))
+        print(report(results, args.rc))
 
         fixes = [r for r in results if r.fix is not None]
         if not args.apply or not fixes:
@@ -136,8 +140,8 @@ def main() -> int:
             print(f"  {r.name}: {r.value:g} -> {r.fix:g}  {outcome}")
         print("\nRe-reading:\n")
         values = tool.read(wanted)
-        results = evaluate({n: v for n, (v, _) in values.items()}, sysid)
-        print(report(results))
+        results = evaluate({n: v for n, (v, _) in values.items()}, sysid, args.rc)
+        print(report(results, args.rc))
         print("\nReboot the Pixhawk now so every change takes effect, then run this check again.")
         return 0 if all(r.ok for r in results) else 1
     finally:
