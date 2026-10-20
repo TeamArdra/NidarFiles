@@ -72,12 +72,16 @@ export default function ConnectionPanel({ telemetry }: { telemetry: TelemetryRes
 
   return (
     <Panel title="Connection">
-      <Row label="GCS ↔ Jetson">
-        <span className={`text-xs mr-2 ${isStale ? "text-warn" : "text-dim"}`}>
-          {heartbeatAge === null ? "no heartbeat received" : `${fmtNum(heartbeatAge, 1)} s`}
+      {/* Not a Row: the heartbeat text must wrap under the pill, never squeeze the label. */}
+      <div className="flex justify-between gap-2 py-1 border-b border-b-[#1d252d] text-[13px]">
+        <span className="text-dim whitespace-nowrap">GCS ↔ Jetson</span>
+        <span className="flex flex-wrap justify-end items-center gap-x-2 tabular-nums">
+          <span className={`text-xs ${isStale ? "text-warn" : "text-dim"}`}>
+            {heartbeatAge === null ? "no heartbeat received" : `${fmtNum(heartbeatAge, 1)} s`}
+          </span>
+          <ConnPill value={telemetry?.connected ?? null} />
         </span>
-        <ConnPill value={telemetry?.connected ?? null} />
-      </Row>
+      </div>
       <Row label="Jetson ↔ Pixhawk">
         <ConnPill value={telemetry?.fcu.connected ?? null} />
       </Row>
