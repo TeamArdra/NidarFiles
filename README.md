@@ -231,7 +231,7 @@ The browser opens **http://127.0.0.1:8000/ui/**. Keep the terminal open
 
 | Where | Expected | If not |
 |---|---|---|
-| **Components** | every part `CONNECTED`: radio link, Pixhawk, battery monitor, position estimate, IMU, LiDAR, SLAM map (`LOST` = it stopped, `NOT FOUND` = never heard) | the row names the part to check; LiDAR/map are `NOT FOUND` with `--no-lidar`/`--no-map` |
+| **Connection** | both links `CONNECTED`; **Control** = flight mode + who flies (`Jetson (autonomous)` in GUIDED, `RC pilot`, `Pixhawk (failsafe/landing)`, `disarmed`); parts Battery, Position (flow), IMU, LiDAR, SLAM map all green (red = lost, grey = not found; hover a part for details) | the dot names the part to check; LiDAR/map stay grey with `--no-lidar`/`--no-map` |
 | Mission Control → **Radio link** | `LINK UP · heartbeat 0.x s ago` | section 12: RADIO LINK DOWN / PORT NOT OPEN |
 | Mission Control → **Mission** | mission name + `IDLE` | Jetson stack not running, or mission program crashed (its log) |
 | Mission Control → **Vehicle** | `DISARMED` + flight mode | `Pixhawk not connected`: MAVROS/Ethernet (check_jetson.sh) |
