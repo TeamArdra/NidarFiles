@@ -15,21 +15,25 @@
 # itself. Refuses to run if it is already running.
 #
 # Usage:
-#   start_jetson.sh            full stack (a radio START will fly the hover)
-#   start_jetson.sh --no-fcu   no Pixhawk connected: skip the Pixhawk/MAVROS
-#                              checks; radio link (+ LiDAR) only, START refused
-#   start_jetson.sh --map      LiDAR + Cartographer 2D SLAM: live map (and the
-#                              LiDAR's position on it) to the GCS Map panel;
-#                              implies --lidar. Works hand-held with --no-fcu.
-#                              With the Pixhawk connected, its IMU is used too
-#                              (if it streams fast enough); NIDAR_MAP_IMU=off
-#                              for LiDAR only.
-#   start_jetson.sh --lidar    also run the RPLIDAR A2 and send its scan to the
-#                              GCS over the radio (LiDAR panel)
-#   start_jetson.sh --setup    also let the GCS Setup page write Pixhawk
-#                              parameters (bench only; refused while armed)
-#   start_jetson.sh --dry-run  radio node ACKs and logs but publishes nothing;
-#                              nothing can arm. Use for the first radio test.
+#   start_jetson.sh              EVERYTHING (a radio START will fly the hover):
+#                                the RPLIDAR A2 scan to the GCS LiDAR panel and
+#                                Cartographer 2D SLAM -- live map (and the
+#                                LiDAR's position on it) to the GCS Map panel.
+#                                With the Pixhawk connected, its IMU is used in
+#                                the map too (if it streams fast enough;
+#                                NIDAR_MAP_IMU=off for LiDAR only). A missing
+#                                LiDAR or Cartographer is a warning, not a stop.
+#   start_jetson.sh --no-map     no SLAM map (LiDAR panel still on)
+#   start_jetson.sh --no-lidar   no LiDAR at all (so no map either)
+#   start_jetson.sh --no-fcu     no Pixhawk connected: skip the Pixhawk/MAVROS
+#                                checks; radio link + LiDAR/map only, START
+#                                refused. Hand-held mapping.
+#   start_jetson.sh --setup      also let the GCS Setup page write Pixhawk
+#                                parameters (bench only; refused while armed)
+#   start_jetson.sh --dry-run    radio node ACKs and logs but publishes nothing;
+#                                nothing can arm. Use for the first radio test.
+# Options combine, e.g. --dry-run --no-map. (--lidar / --map are still
+# accepted; they are the default now.)
 #
 # Ctrl+C stops everything this script started. Logs: ~/NidarFiles/logs/<time>/
 #
@@ -50,11 +54,11 @@ RADIO_BAUD="${NIDAR_RADIO_BAUD:-115200}"
 # low: START/ABORT ACKs share the radio's air time.
 # TODO(hardware): raise only after measuring the radio's real throughput.
 TELEMETRY_RATE_HZ="${NIDAR_TELEMETRY_RATE_HZ:-2.0}"
-# LiDAR (--lidar): scans sent over the radio per second (~180 B each), and the
+# LiDAR: scans sent over the radio per second (~180 B each), and the
 # direction of the LiDAR's 0 deg mark relative to the drone's nose (clockwise).
 LIDAR_RATE_HZ="${NIDAR_LIDAR_RATE_HZ:-1.0}"
 LIDAR_YAW_DEG="${NIDAR_LIDAR_YAW_DEG:-0}"
-# Map (--map): packets per second (~145 B each) and the cell size sent to the GCS.
+# Map: packets per second (~145 B each) and the cell size sent to the GCS.
 MAP_RATE_HZ="${NIDAR_MAP_RATE_HZ:-2.0}"
 MAP_CELL_M="${NIDAR_MAP_CELL_M:-0.25}"
 # Ignore LiDAR returns closer than this (m): the person holding it, or the
@@ -73,19 +77,21 @@ LIDAR_Z_M="${NIDAR_LIDAR_Z_M:-0}"
 
 DRY_RUN=false
 SETUP=false
-LIDAR=false
+LIDAR=true
 NO_FCU=false
-MAP=false
+MAP=true
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=true ;;
     --setup) SETUP=true ;;
-    --lidar) LIDAR=true ;;
     --no-fcu) NO_FCU=true ;;
-    --map) MAP=true; LIDAR=true ;;
-    *) echo "unknown option: $arg (use --dry-run, --setup, --lidar, --map, --no-fcu)"; exit 1 ;;
+    --no-map) MAP=false ;;
+    --no-lidar) LIDAR=false ;;
+    --lidar|--map) ;;  # on by default now
+    *) echo "unknown option: $arg (use --dry-run, --setup, --no-fcu, --no-map, --no-lidar)"; exit 1 ;;
   esac
 done
+$LIDAR || MAP=false  # the map is built from the LiDAR
 
 LOG_DIR="$NIDAR_DIR/logs/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$LOG_DIR"
@@ -145,9 +151,9 @@ set -u
 # their /dev/serial/by-id names differ (the LiDAR's has a long unique serial,
 # the radio's ends in "Controller_0001"), but CP2102 adapters MAY share a
 # name, so the port choice does not rely on names: whenever more than one USB
-# serial port is present (or --lidar is given), ask each port which one
+# serial port is present (or the LiDAR is wanted), ask each port which one
 # answers like an RPLIDAR (GET_INFO) and give the radio another port -- so a
-# plugged-in LiDAR can never take the radio's place, with or without --lidar.
+# plugged-in LiDAR can never take the radio's place, even with --no-lidar.
 LIDAR_PORT=""
 USB_SERIAL_COUNT=$(ls /dev/ttyUSB* /dev/ttyACM* 2>/dev/null | wc -l)
 if $LIDAR || [ "$USB_SERIAL_COUNT" -gt 1 ]; then
@@ -157,7 +163,7 @@ if $LIDAR || [ "$USB_SERIAL_COUNT" -gt 1 ]; then
     $LIDAR && say "WARNING: no RPLIDAR answered (ports: ${OTHER_PORTS:-none}) -- continuing WITHOUT LiDAR"
     LIDAR=false
   else
-    say "RPLIDAR on $LIDAR_PORT @ $LIDAR_BAUD ($LIDAR_INFO)$($LIDAR || echo ' -- not used (no --lidar)')"
+    say "RPLIDAR on $LIDAR_PORT @ $LIDAR_BAUD ($LIDAR_INFO)$($LIDAR || echo ' -- not used (--no-lidar)')"
     if [ -n "${NIDAR_RADIO_PORT:-}" ]; then
       [ "$(readlink -f "$NIDAR_RADIO_PORT")" = "$LIDAR_PORT" ] && fail "NIDAR_RADIO_PORT=$NIDAR_RADIO_PORT is the LiDAR, not the radio"
     else
@@ -240,7 +246,7 @@ if $LIDAR; then
     -p "range_min_m:=$LIDAR_MIN_RANGE_M"
 fi
 if $MAP && ! $LIDAR; then
-  say "WARNING: --map without a LiDAR -- no map"
+  say "WARNING: no LiDAR -- no map"
   MAP=false
 elif $MAP; then
   # Cartographer 2D SLAM from /scan (LiDAR only). Our config includes

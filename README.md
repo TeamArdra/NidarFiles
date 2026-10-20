@@ -152,12 +152,17 @@ power, address 1000, channel 0 (already set on this pair).
 ### 5.2 Jetson: start the stack (one terminal)
 
 ```bash
-~/NidarFiles/scripts/jetson/start_jetson.sh --dry-run   # safe: commands are answered but never executed
-~/NidarFiles/scripts/jetson/start_jetson.sh             # LIVE: START really runs the mission
+~/NidarFiles/scripts/jetson/start_jetson.sh             # LIVE, EVERYTHING: START really runs the mission; LiDAR (7.3) + live map (7.4)
+~/NidarFiles/scripts/jetson/start_jetson.sh --dry-run   # same, but commands are answered and never executed
 ~/NidarFiles/scripts/jetson/start_jetson.sh --setup     # LIVE + allows parameter writes from the Setup tab
-~/NidarFiles/scripts/jetson/start_jetson.sh --lidar     # also runs the RPLIDAR A2 and shows its scan on the GCS (7.3)
-~/NidarFiles/scripts/jetson/start_jetson.sh --no-fcu --lidar   # NO Pixhawk connected: radio link + LiDAR only (START refused)
+~/NidarFiles/scripts/jetson/start_jetson.sh --no-map    # no SLAM map (LiDAR panel still on)
+~/NidarFiles/scripts/jetson/start_jetson.sh --no-lidar  # no LiDAR, so no map either
+~/NidarFiles/scripts/jetson/start_jetson.sh --no-fcu    # NO Pixhawk connected: radio link + LiDAR + map only (START refused)
 ```
+
+A LiDAR that isn't plugged in, or Cartographer not installed, is only a
+`WARNING` — the rest of the stack starts. Map and LiDAR packets share the
+radio with START/ABORT: if ACKs start needing retries, use `--no-map`.
 
 Without a Pixhawk the normal start stops at `Pixhawk … does not answer` and
 the radio never comes up — use `--no-fcu` for radio/LiDAR work on the bench.
@@ -308,13 +313,13 @@ The Jetson refuses a START for one mission while the other is running
 
 ### 7.3 LiDAR live view (RPLIDAR A2, over the radio)
 
-Not a mission — a live display. Plug the RPLIDAR A2 into a Jetson USB port
-and start with `--lidar` (combine freely, e.g. `--dry-run --lidar`).
+Not a mission — a live display. Plug the RPLIDAR A2 into a Jetson USB port;
+`start_jetson.sh` runs it by default (`--no-lidar` to leave it off).
 
 - The LiDAR's USB adapter and the radio use the same chip (CP2102). Their
   Linux names differ on our units, but such adapters *may* share a name, so
   the script doesn't rely on names: whenever two or more USB serial ports
-  are plugged in (with or without `--lidar`), `start_jetson.sh` asks each
+  are plugged in (even with `--no-lidar`), `start_jetson.sh` asks each
   port which one is the RPLIDAR and gives the radio the other one. It prints
   `RPLIDAR on /dev/ttyUSBx …` and `radio -> /dev/ttyUSBy`. Both work at the
   same time. Verified on the real A2M12 (model 0x2C, 256000 baud, ~12 scans/s).
@@ -336,11 +341,11 @@ without it (`WARNING: no RPLIDAR answered`).
 ### 7.4 Live map (Cartographer SLAM, over the radio)
 
 ```bash
-~/NidarFiles/scripts/jetson/start_jetson.sh --no-fcu --map --dry-run   # hand-held, no Pixhawk
-~/NidarFiles/scripts/jetson/start_jetson.sh --map                      # on the drone
+~/NidarFiles/scripts/jetson/start_jetson.sh --no-fcu --dry-run   # hand-held, no Pixhawk
+~/NidarFiles/scripts/jetson/start_jetson.sh                      # on the drone
 ```
 
-`--map` runs the LiDAR (`--lidar` is implied) and **Cartographer** 2D SLAM.
+The map is on by default (`--no-map` to leave it off): the LiDAR plus **Cartographer** 2D SLAM.
 **With the Pixhawk connected** (no `--no-fcu`), the script asks it for the
 IMU at 50 Hz, measures `/mavros/imu/data` for 8 s, and if it gets ≥ 30 Hz
 Cartographer also uses the **Pixhawk IMU** (levels tilted scans, keeps up with
@@ -513,7 +518,7 @@ change the magnetic field — calibrate after assembly, never before).
 | Jetson: radio permission denied | not in `dialout`: rerun `setup_jetson.sh`, log out/in |
 | `WARNING: no RPLIDAR answered` | LiDAR USB unplugged or no power (it needs USB 5 V; the motor should spin when the stack starts); check `ls /dev/ttyUSB*` shows two ports |
 | LiDAR panel: obstacles in the wrong direction | set `NIDAR_LIDAR_YAW_DEG` (section 7.3) |
-| Radio link drops with `--lidar` | lower `NIDAR_LIDAR_RATE_HZ` (e.g. 0.5) |
+| Radio link drops (START/ABORT need retries) | lower `NIDAR_LIDAR_RATE_HZ` (e.g. 0.5) / `NIDAR_MAP_RATE_HZ`, or start with `--no-map` |
 | Windows: script "cannot be loaded … disabled on this system" | use `powershell -ExecutionPolicy Bypass -File …` as shown |
 | `PreArm: RC not calibrated` / `RC not found` / `Throttle below failsafe` | no RC in this setup: `ARMING_CHECK` → untick only "RC Channels"; `FS_THR_ENABLE=0` |
 | `flight_params.py`: `UNKNOWN` items | MAVROS hasn't loaded the parameter list yet — wait ~30 s after `MAVROS connected` and run again |
