@@ -96,7 +96,10 @@ class MainConfig:
     # the heading changes the two disagree: don't learn the transform then,
     # and only believe a jump that lasts (2026-10-21 sim crash: a lagged 50
     # deg/s turn looked like a "jump", the reset rotated every setpoint).
-    transform_max_yaw_rate_rps: float = math.radians(9)
+    transform_max_yaw_rate_rps: float = math.radians(60)  # only skip real spins: the time matching handles normal turns
+    # How fast the map->local transform follows (fraction per tick). Optical
+    # flow's scale error makes the true offset change as the drone moves.
+    transform_smoothing: float = 0.3  # 2D sim sweep with 25 % flow scale error: 0.05 hit walls, 0.3 cleared them
     transform_jump_confirm_s: float = 1.0
     mode_confirm_timeout_s: float = 5.0
     arm_timeout_s: float = 15.0
@@ -150,7 +153,7 @@ class MainMission:
         self._explore_started: Optional[float] = None
         self._return_started: Optional[float] = None
         self._entry: Optional[EntryPose] = None
-        self._transform = RigidTransform2D(smoothing=0.05)
+        self._transform = RigidTransform2D(smoothing=config.transform_smoothing)
         self._last_local_yaw: Optional[Tuple[float, float]] = None  # (now, yaw)
         # FCU local poses (now, x, y, yaw), ~10 s: the SLAM pose is matched
         # with the FCU pose from the same moment (its age), not the newest.

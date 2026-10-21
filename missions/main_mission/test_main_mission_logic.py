@@ -250,7 +250,7 @@ class TestFrames:
     def test_small_drift_is_smoothed(self):
         m = airborne(MainConfig(exploration_done_cycles=10_000))  # keep flying
         m.tick(3.1, flying(pos=(0.2, 0.0, 1.0)), seen(age=0.0))  # EKF 0.2 m off the map
-        assert m._transform.x == pytest.approx(0.01, abs=0.005)  # 5 % of it per sample
+        assert m._transform.x == pytest.approx(0.2 * CFG.transform_smoothing, abs=0.005)  # a fraction of it per sample
         for t in range(200):
             m.tick(3.2 + t * 0.1, flying(pos=(0.2, 0.0, 1.0)), seen(age=0.0))
         assert m._transform.x == pytest.approx(0.2, abs=0.01)

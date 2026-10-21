@@ -77,7 +77,7 @@ class Sim2D:
 
     def __init__(self, walls: List[Rect], start=(0.0, 0.0), start_yaw=math.pi / 2,
                  drift_mps=(0.004, -0.003), speed_mps=0.5, lidar_range_m=6.0,
-                 body_radius_m=0.2, slam_lag_s=0.6) -> None:
+                 body_radius_m=0.2, slam_lag_s=0.6, flow_scale=1.25) -> None:
         self.walls = walls
         self.start = start
         self.start_yaw = start_yaw
@@ -88,6 +88,9 @@ class Sim2D:
         # The SLAM pose is older than the FCU's (LiDAR rate + scan matching):
         # with it the 2D sim reproduces the turn-lag crash seen in Gazebo.
         self.slam_lag = slam_lag_s
+        # Optical flow overestimates distance (SITL in Gazebo: ~25 %, 2026-10-21):
+        # the FCU's local position = start + scale * (true - start) + drift.
+        self.flow_scale = flow_scale
         self._history: List[Tuple[float, float, float, float]] = []
         x0, y0, x1, y1 = self.BOUNDS
         self.w = round((x1 - x0) / self.RES)
@@ -123,8 +126,15 @@ class Sim2D:
         c, r = self._col(x), self._row(y)
         return not (0 <= c < self.w and 0 <= r < self.h) or bool(self.occ[r * self.w + c])
 
-    def _offset(self) -> Tuple[float, float]:
-        return (self.drift[0] * self.t, self.drift[1] * self.t)
+    def _to_local(self, x: float, y: float) -> Tuple[float, float]:
+        sx, sy = self.start
+        return (sx + self.flow_scale * (x - sx) + self.drift[0] * self.t,
+                sy + self.flow_scale * (y - sy) + self.drift[1] * self.t)
+
+    def _from_local(self, lx: float, ly: float) -> Tuple[float, float]:
+        sx, sy = self.start
+        return (sx + (lx - self.drift[0] * self.t - sx) / self.flow_scale,
+                sy + (ly - self.drift[1] * self.t - sy) / self.flow_scale)
 
     def world_to_map(self, x, y, yaw):
         dx, dy = x - self.start[0], y - self.start[1]
@@ -186,10 +196,10 @@ class Sim2D:
                          "origin": {"position": {"x": mx0, "y": my0}}}, "data": data}
 
     def snapshot(self) -> VehicleSnapshot:
-        ox, oy = self._offset()
+        lx, ly = self._to_local(self.x, self.y)
         return VehicleSnapshot(
             fcu_connected=True, state_age_s=0.2, armed=self.armed, mode=self.mode,
-            position=(self.x + ox, self.y + oy, self.z), position_age_s=0.05,
+            position=(lx, ly, self.z), position_age_s=0.05,
             battery_voltage_v=16.0, battery_age_s=0.5, ekf_origin_age_s=0.5, yaw=self.yaw,
         )
 
@@ -229,9 +239,9 @@ class Sim2D:
             return True, "speed"
         if action.kind == "goto":
             lx, ly, lz, lyaw = action.value
-            ox, oy = self._offset()
             if self.mode == GUIDED and self.armed:
-                self.target = (lx - ox, ly - oy, lz, lyaw)
+                wx, wy = self._from_local(lx, ly)
+                self.target = (wx, wy, lz, lyaw)
             return True, "goto"
         return False, f"unknown action {action.kind}"
 
