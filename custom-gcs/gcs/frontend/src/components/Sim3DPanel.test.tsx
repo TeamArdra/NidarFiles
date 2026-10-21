@@ -38,14 +38,27 @@ describe("Sim3DPanel", () => {
     expect(screen.getByTestId("sim3d-status").textContent).toContain("connected");
   });
 
-  it("chases the drone once connected and toggles to the free view", async () => {
+  it("starts in the free view and only follows the drone when asked", async () => {
     render(<Sim3DPanel url="ws://127.0.0.1:9010" />);
     await act(async () => undefined);
     act(() => status$.next(true));
+    // connecting must not grab the camera (zoom/orbit stay with the operator)
+    expect(instances[0].thirdPersonFollow).not.toHaveBeenCalled();
+    expect(instances[0].resetView).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Follow drone" }));
     expect(instances[0].thirdPersonFollow).toHaveBeenCalledWith(SIM_DRONE_ENTITY);
     fireEvent.click(screen.getByRole("button", { name: "Free view" }));
     expect(instances[0].resetView).toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Follow drone" })).toBeTruthy();
+  });
+
+  it("a reconnect does not move the camera", async () => {
+    render(<Sim3DPanel url="ws://127.0.0.1:9010" />);
+    await act(async () => undefined);
+    act(() => status$.next(true));
+    act(() => status$.next(false));
+    act(() => status$.next(true));
+    expect(instances[0].thirdPersonFollow).not.toHaveBeenCalled();
+    expect(instances[0].resetView).not.toHaveBeenCalled();
   });
 
   it("releases the viewer when removed", async () => {

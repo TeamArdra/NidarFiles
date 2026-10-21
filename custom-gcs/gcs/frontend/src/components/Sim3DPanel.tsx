@@ -19,7 +19,10 @@ type Status = "loading viewer" | "connecting" | "connected" | "disconnected" | s
 
 export default function Sim3DPanel({ url }: { url: string }) {
   const [status, setStatus] = useState<Status>("loading viewer");
-  const [follow, setFollow] = useState(true);
+  // Free orbit by default: the operator zooms/orbits freely. "Follow drone"
+  // is opt-in -- gzweb's third-person follow re-aims the camera every frame,
+  // which overrides mouse zoom/orbit (kp, 2026-10-21: "can't zoom freely").
+  const [follow, setFollow] = useState(false);
   const scene = useRef<SceneManager | null>(null);
 
   useEffect(() => {
@@ -49,15 +52,14 @@ export default function Sim3DPanel({ url }: { url: string }) {
     };
   }, [url]);
 
-  // Camera: chase the drone, or the free orbit view. The drone's model can
-  // arrive a moment after the connection, so the chase is re-applied once.
-  useEffect(() => {
-    if (status !== "connected" || !scene.current) return;
-    const apply = () => (follow ? scene.current?.thirdPersonFollow(SIM_DRONE_ENTITY) : scene.current?.resetView());
-    apply();
-    const again = window.setTimeout(apply, 3000);
-    return () => window.clearTimeout(again);
-  }, [follow, status]);
+  // Camera changes only when the operator clicks -- never on (re)connects,
+  // so nothing moves the view while they are zooming or orbiting.
+  const toggleFollow = () => {
+    const next = !follow;
+    setFollow(next);
+    if (next) scene.current?.thirdPersonFollow(SIM_DRONE_ENTITY);
+    else scene.current?.resetView();
+  };
 
   const dot = status === "connected" ? "bg-ok" : status === "connecting" || status === "loading viewer" ? "bg-warn" : "bg-bad";
   return (
@@ -70,7 +72,8 @@ export default function Sim3DPanel({ url }: { url: string }) {
         <button
           type="button"
           className="px-2 py-0.5 rounded border border-border text-dim hover:text-text"
-          onClick={() => setFollow((f) => !f)}
+          onClick={toggleFollow}
+          disabled={status !== "connected"}
         >
           {follow ? "Free view" : "Follow drone"}
         </button>
