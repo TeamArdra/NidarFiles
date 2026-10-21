@@ -80,6 +80,7 @@ class MainConfig:
     replan_period_s: float = 3.0  # while following a path
     idle_replan_s: float = 1.0  # while holding without one (the map updates ~1 Hz)
     exploration_done_cycles: int = 3  # replans in a row with nothing reachable
+    map_ready_timeout_s: float = 30.0  # no free space around the drone yet -> wait this long, then land
     geofence_m: float = 20.0  # from the entry, horizontal
     max_altitude_margin_m: float = 0.6
     altitude_reached_fraction: float = 0.8
@@ -147,6 +148,7 @@ class MainMission:
         self._follower = PathFollower(config.follow)
         self._last_plan = -math.inf
         self._empty_cycles = 0
+        self._map_wait_since: Optional[float] = None
         self._slam_lost_since: Optional[float] = None
         self._hold: Optional[Tuple[float, float, float]] = None  # local x, y, yaw while holding
         self._return_reason = ""
@@ -382,7 +384,17 @@ class MainMission:
         due = c.replan_period_s if self._follower.path else c.idle_replan_s
         if now - self._last_plan >= due:
             self._last_plan = now
-            if self.state == EXPLORING:
+            if self.state == EXPLORING and grid.nearest_free((x, y), c.explore.snap_radius_m) is None:
+                # Nothing confirmed free around the drone yet (a fresh map):
+                # that is "map not ready", not "map complete".
+                if self._map_wait_since is None:
+                    self._map_wait_since = now
+                if now - self._map_wait_since > c.map_ready_timeout_s:
+                    return self._land(now, "no free space on the map around the drone -- landing", FAILED)
+                self.detail = "waiting for the map to show free space around the drone"
+                self._follower.clear()
+            elif self.state == EXPLORING:
+                self._map_wait_since = None
                 choice = self._explorer.choose(seen.map_grid, (x, y), entry, grid)
                 if choice is None:
                     self._empty_cycles += 1
@@ -401,7 +413,7 @@ class MainMission:
                             f"exploring: goal ({choice.goal[0]:.1f}, {choice.goal[1]:.1f}), "
                             f"{path_length(choice.path):.1f} m, {choice.frontier_count} frontier(s)"
                         )
-            else:  # RETURNING: refresh the path home on the newest map
+            elif math.hypot(x - entry.x, y - entry.y) > c.entry_tolerance_m:  # RETURNING: path home on the newest map
                 path = plan_path(grid, (x, y), (entry.x, entry.y), c.explore.snap_radius_m)
                 if path is None:
                     if not self._follower.path:
@@ -419,6 +431,8 @@ class MainMission:
             return self._hold_here(snap)
         cmd = self._follower.step(now, (x, y), yaw, grid.wall_points_near((x, y), c.follow.repulsion_radius_m))
         if cmd.reached:
+            if self.state == EXPLORING and self._explorer.goal is not None:
+                self._explorer.arrived(self._explorer.goal)
             self._follower.clear()
             self._last_plan = -math.inf  # next goal at once
             return self._hold_here(snap)

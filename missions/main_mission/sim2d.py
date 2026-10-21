@@ -171,11 +171,11 @@ class Sim2D:
                         # like Cartographer's probabilities, never a clean 0/100
                         # (free ~10-19, walls ~55-79), so the mission must not
                         # depend on exact values (the real /map, 2026-10-21)
-                        # and seen-once free cells stay "not sure" (~30-39): the
+                        # and seen-once free cells stay "not sure" (48-49): the
                         # ring Cartographer leaves at the edge of what it saw
                         h = (wc * 7 + wr * 13) % 10
                         if v == 0:
-                            data[r * mw + c] = 10 + h if self.free_hits[wr * self.w + wc] >= 2 else 30 + h
+                            data[r * mw + c] = 10 + h if self.free_hits[wr * self.w + wc] >= 2 else 48 + h % 2
                         else:
                             data[r * mw + c] = 55 + 2 * h
         return {"info": {"resolution": self.RES, "width": mw, "height": mh,

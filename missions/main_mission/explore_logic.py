@@ -58,8 +58,12 @@ BLOCKED = 100
 class ExploreConfig:
     plan_res_m: float = 0.1  # planning cell size (>= the /map resolution)
     inflation_m: float = 0.30  # drone radius incl. guards + margin
-    occupied_at: int = 50  # /map value counted as a wall (Cartographer walls ~50-80)
-    free_below: int = 25  # /map value counted as free
+    # Cartographer's /map: every cell starts at 50 (unknown odds); a few
+    # "miss" scans pull free space into the 40s, a mature map into the 10s;
+    # walls go 50 -> 80. Main Mission (Sim) 2026-10-21: a fresh map had its
+    # free space at 40-44, so a stricter "free" (25) left NOTHING traversable.
+    occupied_at: int = 50  # /map value counted as a wall
+    free_below: int = 48  # /map value counted as free
     min_frontier_cells: int = 6
     snap_radius_m: float = 1.0  # frontier/start -> nearest free planning cell
     max_goal_attempts: int = 5  # frontiers tried per choose() before giving up
@@ -75,6 +79,11 @@ class ExploreConfig:
     visit_radius_m: float = 1.5
     max_failures: int = 3
     sweep_radius_m: float = 5.0
+    # A frontier the drone already flew to and that is still there can't be
+    # cleared by the LiDAR (e.g. a not-sure cell at a wall tip): skip any
+    # frontier this close to a goal already reached (Main Mission (Sim)
+    # 2026-10-21 ping-ponged between two such goals).
+    reached_radius_m: float = 0.75
 
 
 @dataclass(frozen=True)
@@ -276,9 +285,17 @@ class Explorer:
     blacklist: Dict[Tuple[float, float], int] = field(default_factory=dict)
     goal: Optional[Point] = None
     frontier_count: int = 0
+    reached: List[Point] = field(default_factory=list)
 
     def record_pose(self, x: float, y: float) -> None:
         record_visit(self.visited, x, y, self.cfg.visit_cell_m)
+
+    def arrived(self, goal: Point) -> None:
+        """The drone got to `goal`: whatever frontier is left there now has
+        been looked at from close range -- don't send it back."""
+        self.reached.append(goal)
+        if self.goal == goal:
+            self.goal = None
 
     def fail(self, goal: Point) -> None:
         record_failure(self.blacklist, goal[0], goal[1])
@@ -295,6 +312,7 @@ class Explorer:
         frontiers = [
             f for f in frontiers
             if entry.ahead(f.x, f.y) >= -c.behind_start_m and math.hypot(f.x - entry.x, f.y - entry.y) <= c.max_range_m
+            and not any(math.hypot(f.x - rx, f.y - ry) < c.reached_radius_m for rx, ry in self.reached)
         ]
         self.frontier_count = len(frontiers)
         scored = score_candidates(

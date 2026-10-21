@@ -123,3 +123,11 @@ class TestCartographerValues:
         ex = Explorer(ExploreConfig(inflation_m=0.3, min_frontier_cells=3))
         choice = ex.choose(grid, (0.5, 0.6), EntryPose(0.5, 0.6, 0.0))
         assert choice is not None and choice.goal[0] > 1.5
+
+    def test_reached_frontier_is_not_chosen_again(self):
+        rows = ["#" * 30] + ["#" + "." * 18 + "?" * 10 + "#"] * 10 + ["#" * 30]
+        grid = grid_from_rows(rows)
+        ex = Explorer(ExploreConfig(inflation_m=0.3, min_frontier_cells=3))
+        first = ex.choose(grid, (0.5, 0.6), EntryPose(0.5, 0.6, 0.0))
+        ex.arrived((first.goal[0] + 0.2, first.goal[1] - 0.1))  # jittered: still the same spot
+        assert ex.choose(grid, (0.5, 0.6), EntryPose(0.5, 0.6, 0.0)) is None

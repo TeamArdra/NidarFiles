@@ -239,3 +239,24 @@ class TestFrames:
         for t in range(200):
             m.tick(3.2 + t * 0.1, flying(pos=(0.2, 0.0, 1.0)), seen())
         assert m._transform.x == pytest.approx(0.2, abs=0.01)
+
+
+class TestFreshMap:
+    def test_no_free_space_yet_waits_instead_of_finishing(self):
+        """A fresh Cartographer map: everything seen still 'not sure' (here
+        unknown). Must hold, not call the map complete and land."""
+        m = airborne()
+        blank = {"info": ROOM["info"], "data": [-1] * len(ROOM["data"])}
+        for i in range(20):
+            m.tick(3.1 + i, flying(), seen(grid=blank))
+        assert m.state == EXPLORING and "waiting for the map" in m.detail
+        m.tick(3.1 + CFG.map_ready_timeout_s + 2, flying(), seen(grid=blank))
+        assert m.state == LANDING and m._outcome == FAILED
+
+    def test_already_at_the_entry_lands_complete_without_a_path(self):
+        m = airborne()
+        blank = {"info": ROOM["info"], "data": [-1] * len(ROOM["data"])}
+        m.tick(3.0 + CFG.explore_budget_s + 1, flying(), seen(grid=blank))
+        assert m.state == RETURNING
+        assert m.tick(3.0 + CFG.explore_budget_s + 2, flying(), seen(grid=blank)) == [Action("set_mode", LAND)]
+        assert m._outcome == COMPLETE
