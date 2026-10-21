@@ -48,6 +48,28 @@ MISSION_REGISTRY: tuple[MissionDefinition, ...] = (
         ),
         radio_code=2,
     ),
+    MissionDefinition(
+        id="main_mission",
+        name="Main Mission",
+        description=(
+            "REAL FLIGHT, the NIDAR AirMouse run: GUIDED, arm, take off, explore "
+            "the unknown arena by frontier (SLAM map), return to the entry and "
+            "land there. Failsafes: low battery / geofence / time budget -> "
+            "return; SLAM lost, critical battery, ABORT -> land. Parameters in "
+            "missions/main_mission/mission.py."
+        ),
+        radio_code=3,
+    ),
+    MissionDefinition(
+        id="main_mission_sim",
+        name="Main Mission (Sim)",
+        description=(
+            "SIMULATOR ONLY: the same Main Mission flying ArduPilot SITL in "
+            "the Gazebo test maze (scripts/sim/start_sim.sh). The Jetson "
+            "refuses it on the real drone."
+        ),
+        radio_code=4,
+    ),
 )
 
 

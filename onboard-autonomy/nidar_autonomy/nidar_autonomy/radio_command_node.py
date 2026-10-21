@@ -100,6 +100,8 @@ from .topics import (
     FCU_STATE_TOPIC,
     FCU_STATUSTEXT_TOPIC,
     HOVER_STATUS_TOPIC,
+    MAIN_MISSION_SIM_STATUS_TOPIC,
+    MAIN_MISSION_STATUS_TOPIC,
     IMU_TOPIC,
     LOCAL_POSITION_TOPIC,
     LOCAL_VELOCITY_TOPIC,
@@ -123,6 +125,8 @@ DEFAULT_BAUD = 115200
 MISSION_STATUS_TOPICS = {
     "hover": HOVER_STATUS_TOPIC,
     "motor_test": MOTOR_TEST_STATUS_TOPIC,
+    "main_mission": MAIN_MISSION_STATUS_TOPIC,
+    "main_mission_sim": MAIN_MISSION_SIM_STATUS_TOPIC,
 }
 
 # MAVROS mirrors every FCU parameter as a ROS parameter of this node.

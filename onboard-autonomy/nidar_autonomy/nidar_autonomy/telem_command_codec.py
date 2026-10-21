@@ -16,7 +16,8 @@ Request: COMMAND_LONG(MAV_CMD_USER_1) addressed to the Jetson:
     param2  nonce -- the GCS resends the same nonce until it gets an ACK;
             the Jetson acts on each nonce once and re-ACKs resends
     param3  NIDAR_MAGIC -- rejects stray MAV_CMD_USER_1 traffic
-    param4  mission code (START only): MISSION_HOVER = 1, MISSION_MOTOR_TEST = 2
+    param4  mission code (START only): MISSION_HOVER = 1, MISSION_MOTOR_TEST = 2,
+            MISSION_MAIN = 3, MISSION_MAIN_SIM = 4
     param7  PROTOCOL_VERSION (2)
 
 Reply: COMMAND_ACK(MAV_CMD_USER_1). `result` is MAV_RESULT_ACCEPTED or a
@@ -144,7 +145,14 @@ PROTOCOL_VERSION = 2
 
 MISSION_HOVER = 1
 MISSION_MOTOR_TEST = 2
-MISSION_NAMES = {MISSION_HOVER: "hover", MISSION_MOTOR_TEST: "motor_test"}
+MISSION_MAIN = 3
+MISSION_MAIN_SIM = 4
+MISSION_NAMES = {
+    MISSION_HOVER: "hover",
+    MISSION_MOTOR_TEST: "motor_test",
+    MISSION_MAIN: "main_mission",
+    MISSION_MAIN_SIM: "main_mission_sim",
+}
 MISSION_CODES = {name: code for code, name in MISSION_NAMES.items()}
 
 REASON_OK = 0
@@ -163,7 +171,8 @@ REASON_NAMES = {
 }
 
 # Heartbeat mission state values (low byte of custom_mode) -- the states of
-# missions/hover/hover_logic.py and missions/motor_test/motor_test_logic.py.
+# missions/hover/hover_logic.py, missions/motor_test/motor_test_logic.py and
+# missions/main_mission/main_mission_logic.py.
 # 255 = unknown / no mission status.
 MISSION_STATE_CODES = {
     "idle": 0,
@@ -178,6 +187,8 @@ MISSION_STATE_CODES = {
     "failed": 9,
     "pilot_override": 10,
     "testing": 11,
+    "exploring": 12,
+    "returning": 13,
 }
 MISSION_STATE_UNKNOWN = 255
 

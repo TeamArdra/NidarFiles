@@ -101,7 +101,7 @@ class TestMissionRegistryWorksWithoutRos:
         with TestClient(app) as client:
             resp = client.get("/api/missions")
         assert resp.status_code == 200
-        assert [m["id"] for m in resp.json()] == ["hover", "motor_test"]
+        assert [m["id"] for m in resp.json()] == ["hover", "motor_test", "main_mission", "main_mission_sim"]
 
     def test_mission_detail(self):
         app = create_app(settings=_disabled_settings())

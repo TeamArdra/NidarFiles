@@ -6,7 +6,8 @@ and a fresh view of state/position/battery -- plus ArduCopter's motor test
 ArduCopter, NOT PX4: there is no OFFBOARD mode and no setpoint stream is
 needed to stay in GUIDED. After a GUIDED takeoff ArduCopter holds its
 position on its own; LAND mode descends and the FCU disarms itself after
-touchdown. That is why this layer has no setpoint publisher at all.
+touchdown. The only setpoint is goto(): a position target for missions
+that move (missions/main_mission); hover and motor test never send one.
 
 Arm/disarm are NOT reimplemented here: they go through the existing,
 bench-verified flight_command.FlightCommandClient (still the only code in
@@ -53,6 +54,7 @@ from sensor_msgs.msg import BatteryState
 
 from .arming_guard import ArmRejected
 from .flight_command import FlightCommandClient
+from .geometry import quaternion_from_yaw, yaw_from_quaternion
 from .vehicle_snapshot import VehicleSnapshot
 
 GUIDED = "GUIDED"
@@ -62,6 +64,9 @@ SET_MODE_SERVICE = "/mavros/set_mode"
 TAKEOFF_SERVICE = "/mavros/cmd/takeoff"
 MESSAGE_INTERVAL_SERVICE = "/mavros/set_message_interval"
 COMMAND_SERVICE = "/mavros/cmd/command"
+# GUIDED position target, local ENU (MAVROS turns it into
+# SET_POSITION_TARGET_LOCAL_NED for the FCU). Used by missions/main_mission.
+SETPOINT_TOPIC = "/mavros/setpoint_position/local"
 ORIGIN_TOPIC = "/mavros/global_position/gp_origin"
 SET_ORIGIN_TOPIC = "/mavros/global_position/set_gp_origin"
 
@@ -72,6 +77,7 @@ ORIGIN_RETRY_S = 2.0
 ORIGIN_FRESH_S = 3.0
 
 MAV_CMD_DO_MOTOR_TEST = 209
+MAV_CMD_DO_CHANGE_SPEED = 178
 MOTOR_TEST_THROTTLE_PERCENT = 0
 # Motor numbering by ArduPilot's test sequence: 1 = A (front-right on a
 # quad X), then clockwise B, C, D -- the letters in ArduPilot's frame
@@ -111,6 +117,7 @@ class ArduCopterVehicle:
         self._state: Optional[State] = None
         self._state_at: Optional[float] = None
         self._position = None
+        self._yaw: Optional[float] = None
         self._position_at: Optional[float] = None
         self._battery_v: Optional[float] = None
         self._battery_at: Optional[float] = None
@@ -126,6 +133,7 @@ class ArduCopterVehicle:
         node.create_subscription(BatteryState, BATTERY_TOPIC, self._on_battery, qos)
         node.create_subscription(GeoPointStamped, ORIGIN_TOPIC, self._on_origin, qos)
         self._set_origin_pub = node.create_publisher(GeoPointStamped, SET_ORIGIN_TOPIC, 10)
+        self._setpoint_pub = node.create_publisher(PoseStamped, SETPOINT_TOPIC, 10)
 
         self._set_mode_client = node.create_client(SetMode, SET_MODE_SERVICE)
         self._takeoff_client = node.create_client(CommandTOL, TAKEOFF_SERVICE)
@@ -140,7 +148,9 @@ class ArduCopterVehicle:
 
     def _on_pose(self, msg: PoseStamped) -> None:
         p = msg.pose.position
+        q = msg.pose.orientation
         self._position = (p.x, p.y, p.z)
+        self._yaw = yaw_from_quaternion(q.x, q.y, q.z, q.w)
         self._position_at = time.monotonic()
 
     def _on_battery(self, msg: BatteryState) -> None:
@@ -171,6 +181,7 @@ class ArduCopterVehicle:
             battery_voltage_v=self._battery_v,
             battery_age_s=age(self._battery_at),
             ekf_origin_age_s=age(self._origin_at),
+            yaw=self._yaw,
         )
 
     # -- commands -------------------------------------------------------------
@@ -203,6 +214,49 @@ class ArduCopterVehicle:
         future.add_done_callback(
             lambda f: self._finish(
                 f, done, lambda r: (r.success, f"success={r.success} result={r.result}")
+            )
+        )
+
+    def goto(self, x: float, y: float, z: float, yaw: float) -> None:
+        """GUIDED position target in the local ENU frame (metres, yaw in
+        radians, 0 = +x, counter-clockwise). ArduCopter flies there and
+        holds; it only accepts it in GUIDED. Fire-and-forget: the caller
+        confirms progress from snapshot().position. Callers resend it a few
+        times a second (missions/main_mission) -- not required by
+        ArduCopter, but a lost message is then replaced at once."""
+        msg = PoseStamped()
+        msg.header.stamp = self._node.get_clock().now().to_msg()
+        msg.header.frame_id = "map"
+        msg.pose.position.x = float(x)
+        msg.pose.position.y = float(y)
+        msg.pose.position.z = float(z)
+        qx, qy, qz, qw = quaternion_from_yaw(yaw)
+        msg.pose.orientation.x = qx
+        msg.pose.orientation.y = qy
+        msg.pose.orientation.z = qz
+        msg.pose.orientation.w = qw
+        self._setpoint_pub.publish(msg)
+
+    def set_speed(self, speed_mps: float, done: Done) -> None:
+        """Horizontal speed limit for GUIDED position targets
+        (MAV_CMD_DO_CHANGE_SPEED, ground speed). ArduCopter otherwise uses
+        WPNAV_SPEED (default 5 m/s -- far too fast for 1 m corridors)."""
+        if not self._command_client.service_is_ready():
+            done(False, f"{COMMAND_SERVICE} not available")
+            return
+        request = CommandLong.Request()
+        request.broadcast = False
+        request.command = MAV_CMD_DO_CHANGE_SPEED
+        request.confirmation = 0
+        request.param1 = 1.0  # ground speed
+        request.param2 = float(speed_mps)
+        request.param3 = -1.0  # throttle: no change
+        self._log.warning(f"[ardupilot_vehicle] speed limit {speed_mps:.2f} m/s")
+        future = self._command_client.call_async(request)
+        future.add_done_callback(
+            lambda f: self._finish(
+                f, done,
+                lambda r: (r.success and r.result == MAV_RESULT_ACCEPTED, f"success={r.success} result={r.result}"),
             )
         )
 

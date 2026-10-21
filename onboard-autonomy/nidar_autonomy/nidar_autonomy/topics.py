@@ -109,6 +109,14 @@ HOVER_STATUS_TOPIC = "/flight_test/status"
 # as HOVER_STATUS_TOPIC with scenario "motor_test". Also its liveness signal.
 MOTOR_TEST_STATUS_TOPIC = "/motor_test/status"
 
+# The Main Mission's status (missions/main_mission, JSON std_msgs/String,
+# ~2 Hz): the real drone, and the same mission flying ArduPilot SITL in
+# Gazebo (scripts/sim/start_sim.sh). Same shape as HOVER_STATUS_TOPIC plus
+# exploration fields; also each mission's liveness signal for
+# radio_command_node.
+MAIN_MISSION_STATUS_TOPIC = "/main_mission/status"
+MAIN_MISSION_SIM_STATUS_TOPIC = "/main_mission_sim/status"
+
 # radio_command_node's own status (JSON std_msgs/String, 1 Hz): serial
 # port, last packet, last command and its ACK -- for local debugging on the
 # Jetson (`ros2 topic echo`); the GCS gets the same facts over the radio.

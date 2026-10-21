@@ -28,12 +28,19 @@ const MISSION_WARNINGS: Record<string, string> = {
   motor_test:
     "PROPS OFF. START (Motor Test) spins each motor in turn (A, B, C, D) at low throttle for a few seconds. " +
     "ABORT stops the motors immediately.",
+  main_mission:
+    "REAL FLIGHT. START (Main Mission) makes the Jetson take off, explore the arena, return to the entry and land. " +
+    "ABORT while airborne lands where the drone is. Keep the RC transmitter in hand as the independent override.",
+  main_mission_sim:
+    "SIMULATOR. START (Main Mission (Sim)) flies ArduPilot SITL in the Gazebo maze. The real drone refuses this mission.",
 };
 const DEFAULT_WARNING = "REAL HARDWARE. START runs the selected mission on the vehicle. Keep the RC transmitter in hand.";
 
 type Outcome = { ok: boolean; text: string } | null;
 
-const RUNNING_STATES = new Set(["preflight", "setting_guided", "arming", "taking_off", "hovering", "landing", "testing"]);
+const RUNNING_STATES = new Set([
+  "preflight", "setting_guided", "arming", "taking_off", "hovering", "exploring", "returning", "landing", "testing",
+]);
 
 function stateBadgeClass(state: string): string {
   if (state === "complete") return "bg-ok text-white";

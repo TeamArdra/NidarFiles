@@ -25,3 +25,7 @@ class VehicleSnapshot:
     # None = never on this run. Without an origin ArduCopter refuses a
     # GUIDED takeoff (no GPS indoors: the Jetson sets it, ardupilot_vehicle).
     ekf_origin_age_s: Optional[float] = None
+    # Heading of the local position (radians, ENU: 0 = +x/east, counter-
+    # clockwise positive), from the same /mavros/local_position/pose message
+    # as `position`. None until that message arrives.
+    yaw: Optional[float] = None

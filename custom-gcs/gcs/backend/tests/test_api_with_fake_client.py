@@ -646,11 +646,11 @@ def test_no_route_exists_beyond_the_documented_command_surface():
         assert client.put(path).status_code == 404
 
 
-def test_list_missions_returns_hover_and_motor_test():
+def test_list_missions_returns_all_four():
     client, _ = make_client()
     body = client.get("/api/missions").json()
-    assert [m["id"] for m in body] == ["hover", "motor_test"]
-    assert [m["name"] for m in body] == ["Hover", "Motor Test"]
+    assert [m["id"] for m in body] == ["hover", "motor_test", "main_mission", "main_mission_sim"]
+    assert [m["name"] for m in body] == ["Hover", "Motor Test", "Main Mission", "Main Mission (Sim)"]
 
 
 def test_get_mission_detail_for_hover():

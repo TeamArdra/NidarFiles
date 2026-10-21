@@ -62,11 +62,13 @@ MISSION_STATE_NAMES = {
     9: "failed",
     10: "pilot_override",
     11: "testing",
+    12: "exploring",
+    13: "returning",
     255: "unknown",
 }
 
 # Heartbeat high byte -> mission id (app/missions.py radio codes). 0 = none known.
-MISSION_NAMES_BY_CODE = {1: "hover", 2: "motor_test"}
+MISSION_NAMES_BY_CODE = {1: "hover", 2: "motor_test", 3: "main_mission", 4: "main_mission_sim"}
 
 MAV_MODE_FLAG_GUIDED_ENABLED = 8
 MAV_MODE_FLAG_SAFETY_ARMED = 128
