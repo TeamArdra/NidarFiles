@@ -437,7 +437,12 @@ Ubuntu 24.04 laptop (or Windows + WSL2 Ubuntu 24.04):
 ~/NidarFiles/scripts/sim/start_sim.sh      # each time (add --gui to watch Gazebo)
 ```
 
-Then start the GCS with the radio on TCP (the sim's stand-in for the
+**Windows, one command** (sim window in WSL + the GCS in sim mode):
+`powershell -ExecutionPolicy Bypass -File .\scripts\sim\start_sim_windows.ps1`
+(add `-Gui` for Gazebo's own window). Wait for `SIM READY` in the sim window
+(~4 min), then START **Main Mission (Sim)** in the browser.
+
+Or by hand: start the GCS with the radio on TCP (the sim's stand-in for the
 MicroLR900 pair) and START **Main Mission (Sim)**:
 
 ```powershell
@@ -636,7 +641,7 @@ Run the tests (laptop, from the repo root; backend venv created by the GCS start
 |---|---|
 | Unit tests: missions 105, Jetson 475, GCS backend 196, panel 127 | PASS (2026-10-21) |
 | Main Mission logic, closed loop in the 2D maze sim: explores 100 %, returns, lands 0.37 m from the entry, no wall contact | PASS (2026-10-21) |
-| Main Mission (Sim) in Gazebo + SITL | NOT RUN YET |
+| Main Mission (Sim) in Gazebo + SITL: START from the GCS → arm → take off → explore → return → land at the entry (complete); ABORT lands | PASS (2026-10-21) — full-maze runs still hit walls on flow scale error; fixes in, re-test + tuning pending |
 | Main Mission on the drone | NOT TESTED |
 | Radio protocol vs pymavlink; Jetson ↔ GCS in-memory (commands, telemetry, parameters) | PASS |
 | Radio link on hardware: START/ABORT ACK on 1st try, telemetry live, unplug/replug recovery | **PASS** (2026-10-07) |
