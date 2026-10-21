@@ -58,7 +58,7 @@ BLOCKED = 100
 class ExploreConfig:
     plan_res_m: float = 0.1  # planning cell size (>= the /map resolution)
     inflation_m: float = 0.30  # drone radius incl. guards + margin
-    occupied_at: int = 65  # /map value counted as a wall
+    occupied_at: int = 50  # /map value counted as a wall (Cartographer walls ~50-80)
     free_below: int = 25  # /map value counted as free
     min_frontier_cells: int = 6
     snap_radius_m: float = 1.0  # frontier/start -> nearest free planning cell
@@ -224,6 +224,24 @@ class PlanningGrid:
         return pts
 
 
+def normalize_grid(grid: dict, cfg: ExploreConfig) -> dict:
+    """Cartographer's /map holds probabilities (free space ~10-20, walls
+    ~50-80), but frontier_detector only counts a cell as free when it is
+    exactly 0 (its synthetic test maps): on a real map it would find no
+    frontier at all (seen in Main Mission (Sim), 2026-10-21). Map it to
+    the detector's three values: free -> 0, wall -> 100, and unknown OR not
+    sure yet -> -1. Cartographer leaves a ring of not-sure cells (between
+    free_below and occupied_at) around what it has seen; counting them as
+    walls breaks the frontier into crumbs smaller than min_frontier_cells,
+    and exploration stops early (Main Mission (Sim) 2026-10-21: "map
+    complete" after 45 s). Not sure = still worth looking at."""
+    data = [
+        0 if 0 <= v < cfg.free_below else (100 if v >= cfg.occupied_at else -1)
+        for v in grid["data"]
+    ]
+    return {"info": grid["info"], "data": data}
+
+
 def plan_path(grid: PlanningGrid, start: Point, goal: Point, snap_m: float) -> Optional[List[Point]]:
     """A* (GridAStarPlanner) between the nearest free cells to start/goal."""
     s = grid.nearest_free(start, snap_m)
@@ -272,7 +290,7 @@ class Explorer:
         reachable left to explore right now)."""
         c = self.cfg
         grid = grid or PlanningGrid(grid_dict, c, entry)
-        frontiers = [f for f in detect_frontiers(grid_dict) if f.cell_count >= c.min_frontier_cells]
+        frontiers = [f for f in detect_frontiers(normalize_grid(grid_dict, c)) if f.cell_count >= c.min_frontier_cells]
         # frontiers outside the arena limits are not ours to explore
         frontiers = [
             f for f in frontiers
@@ -428,5 +446,5 @@ def _point_along(path: Sequence[Point], index: int, pose: Point, distance: float
 
 __all__ = [
     "Choice", "EntryPose", "ExploreConfig", "Explorer", "FollowCommand", "FollowConfig",
-    "PathFollower", "PlanningGrid", "path_length", "plan_path", "wrap",
+    "PathFollower", "PlanningGrid", "normalize_grid", "path_length", "plan_path", "wrap",
 ]

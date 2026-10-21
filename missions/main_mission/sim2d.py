@@ -94,6 +94,7 @@ class Sim2D:
                 for c in range(max(0, self._col(ax)), min(self.w, self._col(bx - 1e-9) + 1)):
                     self.occ[r * self.w + c] = 1
         self.known = bytearray(b"\xff" * (self.w * self.h))  # 255 unknown, 0 free, 100 wall
+        self.free_hits = bytearray(self.w * self.h)  # scans that saw the cell free (capped)
         # vehicle truth
         self.x, self.y, self.z, self.yaw = start[0], start[1], 0.0, start_yaw
         self.armed = False
@@ -148,6 +149,8 @@ class Sim2D:
                     break
                 if self.known[i] != 100:
                     self.known[i] = 0
+                    if self.free_hits[i] < 3:
+                        self.free_hits[i] += 1
                 d += step
 
     def _build_map(self) -> dict:
@@ -165,7 +168,16 @@ class Sim2D:
                 if 0 <= wc < self.w and 0 <= wr < self.h:
                     v = self.known[wr * self.w + wc]
                     if v != 255:
-                        data[r * mw + c] = v
+                        # like Cartographer's probabilities, never a clean 0/100
+                        # (free ~10-19, walls ~55-79), so the mission must not
+                        # depend on exact values (the real /map, 2026-10-21)
+                        # and seen-once free cells stay "not sure" (~30-39): the
+                        # ring Cartographer leaves at the edge of what it saw
+                        h = (wc * 7 + wr * 13) % 10
+                        if v == 0:
+                            data[r * mw + c] = 10 + h if self.free_hits[wr * self.w + wc] >= 2 else 30 + h
+                        else:
+                            data[r * mw + c] = 55 + 2 * h
         return {"info": {"resolution": self.RES, "width": mw, "height": mh,
                          "origin": {"position": {"x": mx0, "y": my0}}}, "data": data}
 

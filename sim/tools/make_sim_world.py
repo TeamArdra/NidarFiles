@@ -9,7 +9,8 @@ Writes into OUT_DIR (default ~/nidar_sim/generated):
   models/nidar_iris_lidar/   iris_with_ardupilot + a 360 deg 2D LiDAR on top
                              (gz topic /scan, frame "laser" -- what the real
                              RPLIDAR A2 node publishes, so Cartographer runs
-                             with the drone's own config)
+                             with the drone's own config) + a downward
+                             rangefinder fed to SITL (like the MTF-01)
   worlds/nidar_main_mission.sdf
                              the maze + the systems ArduPilot/the LiDAR need,
                              1 kHz physics, the drone at the entry (0, 0)
@@ -56,6 +57,39 @@ LIDAR = """
       <parent>iris_with_standoffs::base_link</parent>
       <child>lidar_link</child>
     </joint>
+    <link name="rangefinder_link">
+      <pose>0 0 -0.05 0 1.5708 0</pose>
+      <inertial>
+        <mass>0.01</mass>
+        <inertia><ixx>1e-6</ixx><iyy>1e-6</iyy><izz>1e-6</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <sensor name="rangefinder" type="gpu_lidar">
+        <topic>/rangefinder</topic>
+        <update_rate>20</update_rate>
+        <always_on>1</always_on>
+        <lidar>
+          <scan>
+            <horizontal><samples>1</samples><resolution>1</resolution><min_angle>0</min_angle><max_angle>0</max_angle></horizontal>
+            <vertical><samples>1</samples><resolution>1</resolution><min_angle>0</min_angle><max_angle>0</max_angle></vertical>
+          </scan>
+          <range><min>0.05</min><max>8.0</max><resolution>0.01</resolution></range>
+        </lidar>
+      </sensor>
+    </link>
+    <joint name="rangefinder_joint" type="fixed">
+      <parent>iris_with_standoffs::base_link</parent>
+      <child>rangefinder_link</child>
+    </joint>
+"""
+
+# Downward rangefinder (like the drone's MTF-01): the ArduPilotPlugin sends a
+# listed range sensor to SITL as rng_1 (RNGFND1_TYPE 100, sim/params).
+RANGE_TO_SITL = """
+      <sensor>
+        <type>range</type>
+        <index>1</index>
+        <topic>/rangefinder</topic>
+      </sensor>
 """
 
 SYSTEMS = """
@@ -89,6 +123,9 @@ def build_model(ardupilot_gazebo: str, out_dir: str) -> str:
         raise SystemExit(f"unexpected model name in {src}")
     i = text.rindex("</model>")
     text = text[:i] + LIDAR + text[i:]
+    plugin = text.index('<plugin name="ArduPilotPlugin"')
+    end = text.index("</plugin>", plugin)
+    text = text[:end] + RANGE_TO_SITL + "    " + text[end:]
     model_dir = os.path.join(out_dir, "models", "nidar_iris_lidar")
     os.makedirs(model_dir, exist_ok=True)
     with open(os.path.join(model_dir, "model.sdf"), "w", encoding="utf-8", newline="\n") as fh:

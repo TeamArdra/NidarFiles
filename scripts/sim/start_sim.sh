@@ -71,8 +71,12 @@ source /opt/ros/jazzy/setup.bash || fail "ROS 2 Jazzy not found -- run scripts/s
 source "$OVERLAY_WS/install/setup.bash"
 set -u
 python3 -c "import nidar_autonomy.radio_command_node" 2>/dev/null || fail "nidar_autonomy not importable -- rerun scripts/sim/setup_sim.sh"
-# ROS puts a vendored gz first on PATH that can't start Gazebo (gps_denied README)
+# Sourcing ROS puts its vendored gz tools first (PATH and GZ_CONFIG_PATH): they
+# have topic/service but no "gz sim" (gps_denied README: "the gz PATH shadow").
+# Gazebo Harmonic's own gz and config must win.
 export PATH="/usr/bin:$PATH"
+export GZ_CONFIG_PATH="/usr/share/gz${GZ_CONFIG_PATH:+:$GZ_CONFIG_PATH}"
+gz sim --help >/dev/null 2>&1 || fail "'gz sim' not available -- is gz-harmonic installed (setup_sim.sh)?"
 export GZ_SIM_SYSTEM_PLUGIN_PATH="$AP_GAZEBO/build${GZ_SIM_SYSTEM_PLUGIN_PATH:+:$GZ_SIM_SYSTEM_PLUGIN_PATH}"
 export GZ_SIM_RESOURCE_PATH="$GEN/models:$AP_GAZEBO/models:$AP_GAZEBO/worlds${GZ_SIM_RESOURCE_PATH:+:$GZ_SIM_RESOURCE_PATH}"
 export NIDAR_SIM=1  # mission.py: only the Sim mission may start here
@@ -150,6 +154,19 @@ run radio_command_node ros2 run nidar_autonomy radio_command_node --ros-args \
   -p "dry_run:=false" -p "telemetry_rate_hz:=2.0" -p "allow_param_write:=false" \
   -p "lidar_rate_hz:=1.0" -p "map_rate_hz:=2.0" -p "map_cell_m:=0.25"
 run main_mission_sim python3 "$NIDAR_DIR/missions/main_mission/mission.py" --sim --ros-args -p use_sim_time:=true
+
+# ArduCopter arms only once the EKF origin (set by mission.py) has become a
+# home position and the gyros have settled -- in a sim slower than real time
+# that takes a while. Don't announce READY before it.
+say "waiting for the FCU home position (EKF origin from the mission, up to 3 min)"
+home=false
+for _ in $(seq 1 60); do
+  if timeout 3 ros2 topic echo --once /mavros/home_position/home >/dev/null 2>&1; then
+    home=true; break
+  fi
+  sleep 2
+done
+$home || say "WARNING: no home position yet -- START may be refused ('waiting for home'); see $LOG_DIR/main_mission_sim.log"
 
 say "-------------------------------------------------------------------"
 say "SIM READY. On the laptop start the GCS with the radio on TCP:"

@@ -111,3 +111,15 @@ class TestFollower:
         for t in range(12):
             cmd = f.step(float(t), (0.4 * t, 0.0), 0.0, [])
         assert not cmd.stuck
+
+
+class TestCartographerValues:
+    def test_frontiers_found_on_probability_values(self):
+        """Cartographer never writes exactly 0 for free space: a corridor
+        of 12s next to unknown must still have a frontier."""
+        rows = ["#" * 30] + ["#" + "." * 18 + "?" * 10 + "#"] * 10 + ["#" * 30]
+        grid = grid_from_rows(rows)
+        grid["data"] = [12 if v == 0 else (70 if v == 100 else v) for v in grid["data"]]
+        ex = Explorer(ExploreConfig(inflation_m=0.3, min_frontier_cells=3))
+        choice = ex.choose(grid, (0.5, 0.6), EntryPose(0.5, 0.6, 0.0))
+        assert choice is not None and choice.goal[0] > 1.5

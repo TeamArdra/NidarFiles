@@ -86,6 +86,12 @@ CONFIG_SIM = MainConfig(
     critical_battery_v=14.0,
     explore=ExploreConfig(inflation_m=0.45),
     follow=FollowConfig(lookahead_m=0.6),
+    # Gazebo in WSL can run well below real time (software rendering of the
+    # LiDAR): the mission clock is sim time (_mission_now below), but message ages
+    # are measured in wall time, so messages arrive "late" -- looser limits.
+    state_stale_s=10.0,
+    position_stale_s=3.0,
+    map_stale_s=15.0,
 )
 
 # Same EKF origin as the hover mission (no GPS indoors).
@@ -110,7 +116,13 @@ class MainMissionNode(Node):
         self._config = CONFIG_SIM if sim else CONFIG
         self._lock = threading.RLock()
         self._mission = MainMission(self._config, self._mission_id)
-        self._vehicle = ArduCopterVehicle(self, FlightCommandClient(self, already_spinning=True))
+        # The sim's /mavros/state can arrive seconds apart (slower than real
+        # time): give ARM/DISARM longer to show up there. The drone keeps 2 s.
+        flight = (
+            FlightCommandClient(self, already_spinning=True, state_confirm_timeout_sec=10.0)
+            if sim else FlightCommandClient(self, already_spinning=True)
+        )
+        self._vehicle = ArduCopterVehicle(self, flight)
         self._selection = None  # (mission_id, monotonic time)
         self._streams_requested = False
         self._last_logged = (self._mission.state, self._mission.detail)
@@ -143,6 +155,14 @@ class MainMissionNode(Node):
     def _on_map(self, msg: OccupancyGrid) -> None:
         self._map = (occupancy_grid_msg_to_dict(msg), time.monotonic())
 
+    def _mission_now(self) -> float:
+        """The mission's `now`: wall (monotonic) on the drone; sim seconds in
+        the simulator, so timeouts and budgets keep their meaning when
+        Gazebo runs slower than real time."""
+        if self._sim:
+            return self.get_clock().now().nanoseconds / 1e9
+        return time.monotonic()
+
     def _perception(self) -> Perception:
         grid, map_age = (None, None) if self._map is None else (self._map[0], time.monotonic() - self._map[1])
         pose = age = None
@@ -167,7 +187,8 @@ class MainMissionNode(Node):
             self._selection = (selection.get("mission_id"), time.monotonic())
 
     def _on_command(self, msg: String) -> None:
-        now = time.monotonic()
+        now = self._mission_now()
+        wall = time.monotonic()  # the mission selection is timed in wall time
         snap = self._vehicle.snapshot()
         with self._lock:
             if msg.data == "abort":
@@ -176,9 +197,9 @@ class MainMissionNode(Node):
                 return
             if msg.data != "start":
                 return
-            if self._selected_other_mission(now):
+            if self._selected_other_mission(wall):
                 return  # another mission's START: not ours, not a failure
-            problem = self._start_problem(now)
+            problem = self._start_problem(wall)
             if problem:
                 self.get_logger().error(f"[{_now()}] START refused: {problem}")
                 self._mission.reject_start(problem)
@@ -224,7 +245,7 @@ class MainMissionNode(Node):
         if snap.fcu_connected:
             self._vehicle.ensure_ekf_origin(*EKF_ORIGIN)
         with self._lock:
-            self._run(self._mission.tick(time.monotonic(), snap, self._perception()))
+            self._run(self._mission.tick(self._mission_now(), snap, self._perception()))
 
     def _run(self, actions) -> None:
         self._log_change()
@@ -255,7 +276,7 @@ class MainMissionNode(Node):
         else:
             self.get_logger().error(f"[{_now()}] {kind} FAILED: {detail}")
         with self._lock:
-            self._run(self._mission.on_result(time.monotonic(), kind, ok, detail))
+            self._run(self._mission.on_result(self._mission_now(), kind, ok, detail))
 
     # -- crash safety net -------------------------------------------------------
 
@@ -270,7 +291,7 @@ class MainMissionNode(Node):
                 try:
                     with self._lock:
                         actions = self._mission.internal_error(
-                            time.monotonic(), f"internal error in {where}: {exc!r}"
+                            self._mission_now(), f"internal error in {where}: {exc!r}"
                         )
                         self._run(actions)
                 except Exception as exc2:  # noqa: BLE001
@@ -288,7 +309,7 @@ class MainMissionNode(Node):
 
     def _publish_status(self) -> None:
         with self._lock:
-            status = self._mission.status(time.monotonic())
+            status = self._mission.status(self._mission_now())
         status["vehicle"] = "sitl" if self._sim else "drone"
         self._status_pub.publish(String(data=json.dumps(status)))
 
