@@ -1,0 +1,37 @@
+# ArduCopter SITL on top of copter.parm + gazebo-iris.parm, made to look like
+# the real AirMouse (README section 13): no GPS, EKF3 velocity from optical
+# flow, height from the barometer, a downward rangefinder, a 4S battery, and
+# the EKF origin set by the Jetson (mission.py), never by a GPS.
+# Real drone: FLOW_TYPE 5 / RNGFND1_TYPE 10 (MicoAir MTF-01 over MAVLink);
+# here the SITL's own simulated flow (10) and rangefinder (100).
+
+# no GPS indoors
+GPS1_TYPE 0
+SIM_GPS_DISABLE 1
+
+# EKF3 sources (same as the drone)
+AHRS_EKF_TYPE 3
+EK3_SRC1_POSXY 0
+EK3_SRC1_VELXY 5
+EK3_SRC1_POSZ 1
+EK3_SRC1_VELZ 0
+EK3_SRC1_YAW 1
+
+# optical flow + rangefinder (SITL-simulated)
+FLOW_TYPE 10
+SIM_FLOW_ENABLE 1
+RNGFND1_TYPE 100
+RNGFND1_ORIENT 25
+RNGFND1_MIN_CM 5
+RNGFND1_MAX_CM 800
+
+# 4S pack, like the drone (MainConfig battery limits are for 4S)
+SIM_BATT_VOLTAGE 16.8
+BATT_ARM_VOLT 14.7
+BATT_LOW_VOLT 14.5
+BATT_CRT_VOLT 14.0
+
+# no GCS heartbeat failsafe in the sim (MAVROS is the only link)
+FS_GCS_ENABLE 0
+# fallback GUIDED speed if DO_CHANGE_SPEED is ever refused
+WPNAV_SPEED 100

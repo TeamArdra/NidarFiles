@@ -32,7 +32,9 @@ while [ $# -gt 0 ]; do
 done
 
 # -- checks (warnings only: the GCS still starts and shows what is missing) --
-if [ -e "$PORT" ]; then
+if [[ "$PORT" == socket://* ]]; then
+  echo "SIMULATOR: radio link over TCP $PORT (scripts/sim/start_sim.sh must be running)"
+elif [ -e "$PORT" ]; then
   echo "OK: radio port $PORT present"
 else
   echo "WARNING: radio port $PORT not found (ls /dev/ttyUSB* /dev/serial/by-id/). No telemetry and no START/ABORT until it is."

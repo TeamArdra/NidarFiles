@@ -28,7 +28,9 @@ $frontend = Join-Path $root "custom-gcs\gcs\frontend"
 
 # -- checks (warnings only: the GCS still starts and shows what is missing) --
 $ports = [System.IO.Ports.SerialPort]::GetPortNames()
-if ($ports -contains $RadioPort) {
+if ($RadioPort -like "socket://*") {
+    Write-Host "SIMULATOR: radio link over TCP $RadioPort (scripts/sim/start_sim.sh must be running)"
+} elseif ($ports -contains $RadioPort) {
     Write-Host "OK: radio port $RadioPort present"
 } else {
     Write-Warning "radio port $RadioPort not found (present: $($ports -join ', ')). No telemetry and no START/ABORT until the radio is plugged in -- check Device Manager > Ports."

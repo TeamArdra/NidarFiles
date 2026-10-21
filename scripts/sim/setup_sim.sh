@@ -75,7 +75,8 @@ if [ ! -x "$SIM_HOME/ardupilot/build/sitl/bin/arducopter" ]; then
   git submodule sync --recursive
   git submodule update --init --recursive --depth 1 --force
   # install-prereqs installs its own Python venv (~/venv-ardupilot) and pymavlink/MAVProxy.
-  USER="${USER:-$(id -un)}" Tools/environment_install/install-prereqs-ubuntu.sh -y
+  # No MAVProxy GUI (wxPython compiles for 30+ min) and no coverage tools: not used here.
+  USER="${USER:-$(id -un)}" SKIP_AP_GRAPHIC_ENV=1 SKIP_AP_COV_ENV=1 Tools/environment_install/install-prereqs-ubuntu.sh -y
   # shellcheck disable=SC1090
   source "$HOME/.profile" || true
   ./waf configure --board sitl

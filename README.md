@@ -33,8 +33,10 @@ the drone takes off, hovers, and lands.**
 | **Pixhawk 6X** (ArduCopter 4.6.3) | The flight controller: actually flies the drone. Connected to the Jetson by Ethernet. |
 | **MicoAir MTF-01** (on the Pixhawk's TELEM1) | Optical flow + downward rangefinder: the drone's indoor position source. |
 
-Missions in the dropdown: **Hover** (take off to 0.5 m, hold 10 s, land) and
-**Motor Test** (props off: spin each motor in turn).
+Missions in the dropdown: **Hover** (take off to 0.5 m, hold 10 s, land),
+**Motor Test** (props off: spin each motor in turn), **Main Mission** (the
+NIDAR run: explore the arena, return to the entry, land) and **Main Mission
+(Sim)** (the same mission in a simulator on a laptop, section 7.5).
 
 ## 2. How it fits together
 
@@ -399,6 +401,57 @@ free space is seen on **both** sides of it. The Jetson log says
 `arena grid aligned: … deg` the first time it locks on. Off:
 `arena_rate_hz:=0` on `radio_command_node`.
 
+### 7.5 Main Mission and Main Mission (Sim)
+
+**What it does** (`missions/main_mission/`, branch `feature/main-mission`):
+GUIDED → arm → take off to 1 m → record the **entry** (SLAM pose) →
+**exploring**: fly to the nearest useful frontier (edge of the known map) on
+an A* path that keeps the drone's radius off the walls, again and again until
+nothing reachable is left → **returning** to the entry → **LAND** there.
+Everything happens on the Jetson; the operator only presses START (and ABORT).
+
+| Failsafe | Action |
+|---|---|
+| ABORT, critical battery (14.0 V), FCU link lost, position stale, too high, SLAM lost > 6 s | **LAND where it is** |
+| low battery (14.5 V), > 20 m from the entry (geofence), 10 min of exploring used | **return to the entry**, then land |
+| no path home, return > 4 min | land where it is |
+| RC mode switch | mission stops commanding (pilot flies) |
+
+Values are at the top of `missions/main_mission/mission.py` (`CONFIG` real,
+`CONFIG_SIM` simulator). The drone must be **placed facing into the arena**:
+nothing more than 0.5 m behind the start line is explored (that is the hall
+outside the entry).
+
+**Main Mission (real drone)** starts with `start_jetson.sh` like the others
+and needs the LiDAR and the map (7.3, 7.4) — START is refused without a
+fresh map and SLAM pose. **Not flown yet**: first run it props-off in
+`--dry-run`, then a short tethered test with a small explore budget.
+
+**Main Mission (Sim)** runs the same code against ArduCopter 4.6.3 SITL in
+Gazebo, in the test maze from `TeamArdra/gps_denied` (`sim/worlds/nidar_sim.sdf`,
+14 m × 14 m, 2 m corridors) with an iris carrying a 360° 2D LiDAR. Any
+Ubuntu 24.04 laptop (or Windows + WSL2 Ubuntu 24.04):
+
+```bash
+~/NidarFiles/scripts/sim/setup_sim.sh      # once: ROS 2 Jazzy, Gazebo, SITL (~10 GB, 30+ min)
+~/NidarFiles/scripts/sim/start_sim.sh      # each time (add --gui to watch Gazebo)
+```
+
+Then start the GCS with the radio on TCP (the sim's stand-in for the
+MicroLR900 pair) and START **Main Mission (Sim)**:
+
+```powershell
+.\scripts\gcs\start_gcs.ps1 -RadioPort socket://127.0.0.1:5800      # Windows
+```
+```bash
+./scripts/gcs/start_gcs.sh --port socket://127.0.0.1:5800            # Linux
+```
+
+The Jetson refuses Main Mission (Sim) on the drone, and the sim refuses
+Main Mission. Quick check without any of that (pure Python, ~30 s):
+`python missions/main_mission/sim2d.py` flies the mission logic through the
+same maze in 2D and prints the map, the path and the result.
+
 ## 8. Setup tab (Pixhawk parameters)
 
 For bench work only — **never during a mission**. Start both sides in setup mode:
@@ -550,8 +603,9 @@ saved). Radio on the Jetson: `/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_U
 NidarFiles/
 ├── custom-gcs/          GCS: FastAPI backend (gcs/backend) + React panel (gcs/frontend), docs/
 ├── onboard-autonomy/    Jetson ROS 2 packages (nidar_autonomy: radio node, codec, vehicle layer)
-├── missions/            hover/ and motor_test/: mission.py (ROS node) + *_logic.py (pure, tested)
-└── scripts/             jetson/: setup, start, check · gcs/: start_gcs.ps1 / .sh, USB bundle
+├── missions/            hover/, motor_test/, main_mission/: mission.py (ROS node) + *_logic.py (pure, tested)
+├── sim/                 Main Mission (Sim): maze world, SITL params, world builder
+└── scripts/             jetson/: setup, start, check · gcs/: start_gcs.ps1 / .sh, USB bundle · sim/: setup_sim, start_sim
 ```
 
 Key files: radio protocol `onboard-autonomy/nidar_autonomy/nidar_autonomy/telem_command_codec.py`
@@ -575,7 +629,10 @@ Run the tests (laptop, from the repo root; backend venv created by the GCS start
 
 | What | Result |
 |---|---|
-| Unit tests: missions 56, Jetson 415, GCS backend 180, panel 112 | PASS |
+| Unit tests: missions 105, Jetson 475, GCS backend 196, panel 127 | PASS (2026-10-21) |
+| Main Mission logic, closed loop in the 2D maze sim: explores 100 %, returns, lands 0.37 m from the entry, no wall contact | PASS (2026-10-21) |
+| Main Mission (Sim) in Gazebo + SITL | NOT RUN YET |
+| Main Mission on the drone | NOT TESTED |
 | Radio protocol vs pymavlink; Jetson ↔ GCS in-memory (commands, telemetry, parameters) | PASS |
 | Radio link on hardware: START/ABORT ACK on 1st try, telemetry live, unplug/replug recovery | **PASS** (2026-10-07) |
 | ARM via radio START; full Hover sequence to `landed and disarmed` (props off) | **PASS** (2026-10-08) |

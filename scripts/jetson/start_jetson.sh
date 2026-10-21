@@ -7,6 +7,7 @@
 #                                     in, telemetry out -- the GCS's only link)
 #   missions/hover/mission.py        (the hover mission -- REAL FLIGHT)
 #   missions/motor_test/mission.py   (motor test -- spins motors, PROPS OFF)
+#   missions/main_mission/mission.py (Main Mission: explore, return, land -- REAL FLIGHT)
 #
 # There is no Wi-Fi link to the GCS and no rosbridge: everything the GCS
 # shows comes over the radio.
@@ -183,7 +184,7 @@ fi
 # Leftovers hold the radio/LiDAR ports (the probe then reports "no RPLIDAR
 # answered") and a second radio_command_node would fight over the radio.
 # MAVROS is not in this list: it is reused on purpose.
-OURS='lib/nidar_autonomy/(radio_command_node|lidar_node|command_node|heartbeat_node)|missions/(hover|motor_test)/mission\.py|cartographer_(node|occupancy_grid_node)|static_transform_publisher.*laser'
+OURS='lib/nidar_autonomy/(radio_command_node|lidar_node|command_node|heartbeat_node)|missions/(hover|motor_test|main_mission)/mission\.py|cartographer_(node|occupancy_grid_node)|static_transform_publisher.*laser'
 if pgrep -f "$OURS" >/dev/null; then
   say "STOP: parts of an earlier stack are still running:"
   pgrep -af "$OURS" | sed 's/^/    /'
@@ -240,6 +241,7 @@ run radio_command_node ros2 run nidar_autonomy radio_command_node --ros-args \
   -p "map_rate_hz:=$MAP_RATE_HZ" -p "map_cell_m:=$MAP_CELL_M"
 run hover_mission python3 "$NIDAR_DIR/missions/hover/mission.py"
 run motor_test_mission python3 "$NIDAR_DIR/missions/motor_test/mission.py"
+run main_mission python3 "$NIDAR_DIR/missions/main_mission/mission.py"
 if $LIDAR; then
   run lidar_node ros2 run nidar_autonomy lidar_node --ros-args \
     -p "serial_port:=$LIDAR_PORT" -p "baud:=$LIDAR_BAUD" -p "yaw_offset_deg:=$LIDAR_YAW_DEG" \
@@ -306,11 +308,12 @@ if $DRY_RUN; then
   say "DRY RUN: radio commands are ACKed and logged, nothing is published, nothing can arm."
 else
   say "LIVE: a radio START (Hover) from the GCS WILL arm and fly the vehicle;"
-  say "      a radio START (Motor Test) WILL spin the motors -- PROPS OFF."
+  say "      a radio START (Motor Test) WILL spin the motors -- PROPS OFF;"
+  say "      a radio START (Main Mission) WILL fly the full mission (needs LiDAR + map)."
 fi
 say "Ctrl+C stops everything. Following radio + mission logs:"
 say "-------------------------------------------------------------------"
-LOGS=("$LOG_DIR/radio_command_node.log" "$LOG_DIR/hover_mission.log" "$LOG_DIR/motor_test_mission.log")
+LOGS=("$LOG_DIR/radio_command_node.log" "$LOG_DIR/hover_mission.log" "$LOG_DIR/motor_test_mission.log" "$LOG_DIR/main_mission.log")
 $LIDAR && LOGS+=("$LOG_DIR/lidar_node.log")
 $MAP && LOGS+=("$LOG_DIR/cartographer.log")
 tail -n +1 -F "${LOGS[@]}" &

@@ -95,9 +95,12 @@ class ParamResult:
 
 
 def _open_serial(port: str, baud: int):
+    """A COM port / device path (the MicroLR900), or a pyserial URL such as
+    socket://127.0.0.1:5760 -- the simulator's stand-in for the radio pair
+    (scripts/sim/start_sim.sh). Same bytes either way."""
     import serial  # pyserial
 
-    return serial.Serial(port, baud, timeout=0.1, write_timeout=1.0)
+    return serial.serial_for_url(port, baudrate=baud, timeout=0.1, write_timeout=1.0)
 
 
 class RadioLink:
