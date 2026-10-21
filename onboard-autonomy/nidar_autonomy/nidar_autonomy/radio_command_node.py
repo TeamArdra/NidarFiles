@@ -50,7 +50,7 @@ from typing import Optional
 
 import rclpy
 from geometry_msgs.msg import PoseStamped, TwistStamped
-from mavros_msgs.msg import State, StatusText
+from mavros_msgs.msg import Mavlink, State, StatusText
 from nav_msgs.msg import OccupancyGrid
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import GetParameters, SetParameters
@@ -73,6 +73,9 @@ from .radio_telemetry import (
 )
 from .rplidar_protocol import sectors_from_laserscan
 from .telem_command_codec import (
+    MAV_SENSOR_ROTATION_PITCH_270,
+    MSG_ID_DISTANCE_SENSOR,
+    decode_distance_sensor,
     JETSON_COMPONENT_ID,
     JETSON_SYSTEM_ID,
     MISSION_CODES,
@@ -98,6 +101,7 @@ from .topics import (
     BATTERY_TOPIC,
     COMMAND_TOPIC,
     FCU_STATE_TOPIC,
+    FCU_RAW_MAVLINK_TOPIC,
     FCU_STATUSTEXT_TOPIC,
     HOVER_STATUS_TOPIC,
     MAIN_MISSION_SIM_STATUS_TOPIC,
@@ -213,6 +217,9 @@ class RadioCommandNode(Node):
         self.create_subscription(Imu, IMU_TOPIC, self._on_imu, best_effort)
         self.create_subscription(StatusText, FCU_STATUSTEXT_TOPIC, self._on_statustext, best_effort)
         self.create_subscription(LaserScan, SCAN_TOPIC, self._on_scan, best_effort)
+        # Every MAVLink message from the FCU, raw: the downward rangefinder's
+        # DISTANCE_SENSOR is taken from here (no extra MAVROS plugin needed).
+        self.create_subscription(Mavlink, FCU_RAW_MAVLINK_TOPIC, self._on_fcu_mavlink, best_effort)
         # BEST_EFFORT + VOLATILE subscribes to any /map publisher QoS.
         map_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT, durability=DurabilityPolicy.VOLATILE, depth=1
@@ -260,6 +267,14 @@ class RadioCommandNode(Node):
             self._missions[mission_id] = (status.get("state"), now)
             if mission_id == self._active_mission:
                 self._telemetry.update_mission_status(now, status)
+
+    def _on_fcu_mavlink(self, msg: Mavlink) -> None:
+        if msg.msgid != MSG_ID_DISTANCE_SENSOR:
+            return
+        payload = b"".join(word.to_bytes(8, "little") for word in msg.payload64)[: msg.len]
+        decoded = decode_distance_sensor(payload)
+        if decoded is not None and decoded[1] == MAV_SENSOR_ROTATION_PITCH_270:
+            self._telemetry.update_rangefinder(time.monotonic(), decoded[0])
 
     def _on_battery(self, msg: BatteryState) -> None:
         self._telemetry.update_battery(time.monotonic(), msg.voltage, msg.current, msg.percentage)

@@ -60,3 +60,19 @@ def test_api_altitude():
         body = http.get("/api/altitude").json()
     assert body["available"] is True
     assert body["samples"] == [[1000.0, 0.42, -0.1]]
+
+
+def rangefinder(metres):
+    jetson = mavlink.MAVLink(None, srcSystem=1, srcComponent=191)
+    return jetson, jetson.named_value_float_encode(0, b"rngfnd", metres)
+
+
+def test_rangefinder_samples_are_kept_next_to_the_heights():
+    clock = Clock()
+    client = RadioTelemetryClient(clock=clock)
+    _feed(client, rangefinder(0.13))
+    clock.t += 0.2
+    _feed(client, rangefinder(0.14))
+    out = client.altitude()
+    assert out["range"] == [[1000.0, 0.13], [1000.2, 0.14]]
+    assert client.altitude(since=1000.0)["range"] == [[1000.2, 0.14]]

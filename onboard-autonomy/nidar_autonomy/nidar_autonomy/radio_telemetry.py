@@ -11,7 +11,8 @@ tick() at `rate_hz`, and writes the returned frames to the radio. The
 radio's air rate is limited and START/ABORT ACKs share it, so the load is
 kept small and bounded (about 250 B/s at 2 Hz):
 
-  every tick      LOCAL_POSITION_NED, ATTITUDE_QUATERNION   (if fresh)
+  every tick      LOCAL_POSITION_NED, ATTITUDE_QUATERNION,
+                  NAMED_VALUE_FLOAT rngfnd (rangefinder)   (if fresh)
   once a second   FCU HEARTBEAT, SYS_STATUS, hover values   (if fresh)
   per tick, max   STATUSTEXT_PER_TICK status-text frames, queued
 
@@ -31,6 +32,7 @@ from .map_grid import SLAM_POSE_TYPE, MAP_ROWS_TYPE, GridMeta, MapSender, encode
 from .telem_command_codec import (
     FCU_RELAY_COMPONENT_ID,
     HOVER_VALUE_NAMES,
+    RANGEFINDER_VALUE_NAME,
     JETSON_COMPONENT_ID,
     MAV_SEVERITY_INFO,
     encode_attitude_quaternion,
@@ -52,6 +54,7 @@ BATTERY_STALE_S = 5.0
 POSE_STALE_S = 1.0
 VELOCITY_STALE_S = 1.0
 ATTITUDE_STALE_S = 1.0
+RANGEFINDER_STALE_S = 1.0
 MISSION_STATUS_STALE_S = 3.0
 
 # LiDAR: one OBSTACLE_DISTANCE (~180 bytes) per period, only while scans are fresh.
@@ -132,6 +135,8 @@ class TelemetryRelay:
         self._velocity_at: Optional[float] = None
         self._orientation: Optional[Tuple[float, float, float, float]] = None
         self._orientation_at: Optional[float] = None
+        self._range_m: Optional[float] = None
+        self._range_at: Optional[float] = None
         self._mission: Optional[dict] = None
         self._mission_at: Optional[float] = None
 
@@ -164,6 +169,11 @@ class TelemetryRelay:
     def update_velocity(self, now: float, x: float, y: float, z: float) -> None:
         self._velocity = (x, y, z)
         self._velocity_at = now
+
+    def update_rangefinder(self, now: float, distance_m: float) -> None:
+        """The downward rangefinder's distance (FCU DISTANCE_SENSOR)."""
+        self._range_m = float(distance_m)
+        self._range_at = now
 
     def update_orientation(self, now: float, w: float, x: float, y: float, z: float) -> None:
         self._orientation = (w, x, y, z)
@@ -208,6 +218,8 @@ class TelemetryRelay:
             frames.append(encode_local_position(ms, self._position, velocity, self._next_seq()))
         if self._fresh(self._orientation_at, now, ATTITUDE_STALE_S):
             frames.append(encode_attitude_quaternion(ms, *self._orientation, self._next_seq()))
+        if self._fresh(self._range_at, now, RANGEFINDER_STALE_S) and math.isfinite(self._range_m):
+            frames.append(encode_named_value_float(ms, RANGEFINDER_VALUE_NAME, self._range_m, self._next_seq()))
 
         if self._slow_schedule.due(now):
             frames.extend(self._slow(now, ms))

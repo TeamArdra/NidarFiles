@@ -73,7 +73,7 @@ from __future__ import annotations
 import math
 import struct
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 MSG_ID_HEARTBEAT = 0
 MSG_ID_SYS_STATUS = 1
@@ -87,6 +87,7 @@ MSG_ID_COMMAND_ACK = 77
 MSG_ID_NAMED_VALUE_FLOAT = 251
 MSG_ID_STATUSTEXT = 253
 MSG_ID_OBSTACLE_DISTANCE = 330
+MSG_ID_DISTANCE_SENSOR = 132  # FCU -> Jetson only (read from MAVROS's raw feed)
 MSG_ID_TUNNEL = 385
 CRC_EXTRA = {
     MSG_ID_HEARTBEAT: 50,
@@ -203,6 +204,25 @@ ARDUCOPTER_MODES = {
     "SYSTEMID": 25, "AUTOROTATE": 26, "AUTO_RTL": 27, "TURTLE": 28,
 }
 ARDUCOPTER_MODE_UNKNOWN = 0xFFFFFFFF
+
+# NAMED_VALUE_FLOAT name for the downward rangefinder's distance (metres),
+# sent with every telemetry tick (GCS Altitude panel).
+RANGEFINDER_VALUE_NAME = "rngfnd"
+MAV_SENSOR_ROTATION_PITCH_270 = 25  # pointing down (RNGFND1_ORIENT 25)
+
+
+def decode_distance_sensor(payload: bytes) -> Optional[Tuple[float, int]]:
+    """DISTANCE_SENSOR payload -> (current distance in metres, orientation),
+    or None if too short. MAVLink 2 drops trailing zero bytes, so short
+    payloads are zero-padded first. Wire order: time_boot_ms u32,
+    min/max/current_distance u16 (cm), type u8, id u8, orientation u8, ..."""
+    if len(payload) < 10:
+        return None
+    padded = payload + bytes(max(0, 14 - len(payload)))
+    current_cm = struct.unpack_from("<H", padded, 8)[0]
+    orientation = padded[12]
+    return current_cm / 100.0, orientation
+
 
 # NAMED_VALUE_FLOAT names for the hover mission's progress (max 10 chars).
 HOVER_VALUE_NAMES = {

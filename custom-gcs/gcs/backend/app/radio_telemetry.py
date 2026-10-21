@@ -50,6 +50,7 @@ from .radio_protocol import (
     PARAM_TEXT_PREFIX,
     SLAM_POSE_TYPE,
     STATUSTEXT_CHUNK_LEN,
+    RANGEFINDER_VALUE_NAME,
 )
 from .ros_client import (
     ARENA_GRID_TOPIC,
@@ -166,6 +167,7 @@ class RadioTelemetryClient:
         # (received at, z up, vz up) for every position; z when the FCU last
         # armed = the take-off height, so the panel can show height above it
         self._altitude: deque = deque()
+        self._range: deque = deque()  # (received at, rangefinder distance m)
         self._armed = False
         self._ground_z: Optional[float] = None
 
@@ -199,6 +201,11 @@ class RadioTelemetryClient:
                         # None = no return in that sector
                         "distances_cm": [None if d == _UNKNOWN_CM else d for d in msg.distances],
                     }, now)
+                elif kind == "NAMED_VALUE_FLOAT" and msg.name == RANGEFINDER_VALUE_NAME:
+                    if math.isfinite(msg.value):
+                        self._range.append((now, round(msg.value, 3)))
+                        while self._range and now - self._range[0][0] > ALTITUDE_HISTORY_S:
+                            self._range.popleft()
                 elif kind == "NAMED_VALUE_FLOAT" and msg.name in HOVER_VALUE_KEYS:
                     self._hover[HOVER_VALUE_KEYS[msg.name]] = (round(msg.value, 2), now)
                 elif kind == "STATUSTEXT":
@@ -370,7 +377,8 @@ class RadioTelemetryClient:
         local height/climb rate (up = +); ground_z is z when it last armed."""
         with self._lock:
             samples = [list(s) for s in self._altitude if since is None or s[0] > since]
-            return {"now": self._clock(), "ground_z": self._ground_z, "samples": samples}
+            ranges = [list(r) for r in self._range if since is None or r[0] > since]
+            return {"now": self._clock(), "ground_z": self._ground_z, "samples": samples, "range": ranges}
 
     def latest(self, topic: str) -> Any:
         with self._lock:

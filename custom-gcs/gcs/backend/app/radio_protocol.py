@@ -81,6 +81,10 @@ ARDUCOPTER_MODE_NAMES = {
     25: "SYSTEMID", 26: "AUTOROTATE", 27: "AUTO_RTL", 28: "TURTLE",
 }
 
+# NAMED_VALUE_FLOAT from the Jetson: the downward rangefinder's distance (m),
+# every telemetry tick (onboard-autonomy telem_command_codec RANGEFINDER_VALUE_NAME)
+RANGEFINDER_VALUE_NAME = "rngfnd"
+
 # NAMED_VALUE_FLOAT name -> hover mission status field (FlightTestStatusResponse)
 HOVER_VALUE_KEYS = {
     "hv_alt": "current_altitude_m",

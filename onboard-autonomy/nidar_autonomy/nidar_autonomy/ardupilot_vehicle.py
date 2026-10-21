@@ -99,6 +99,7 @@ STREAM_RATES_HZ = {
     # drop it below the 50 Hz start_jetson.sh asked for.
     30: 50.0,  # ATTITUDE
     27: 50.0,  # RAW_IMU
+    132: 5.0,  # DISTANCE_SENSOR -> radio_command_node -> GCS Altitude panel
     1: 2.0,  # SYS_STATUS
     147: 1.0,  # BATTERY_STATUS -> /mavros/battery
     49: 1.0,  # GPS_GLOBAL_ORIGIN -> /mavros/global_position/gp_origin (once set)

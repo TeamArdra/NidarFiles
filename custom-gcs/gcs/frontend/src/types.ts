@@ -405,6 +405,8 @@ export interface AltitudeResponse {
   now: number | null;
   ground_z: number | null;
   samples: Array<[number, number, number | null]>;
+  // the downward rangefinder's distance: [t, metres]
+  range?: Array<[number, number]>;
 }
 
 export interface LidarResponse {

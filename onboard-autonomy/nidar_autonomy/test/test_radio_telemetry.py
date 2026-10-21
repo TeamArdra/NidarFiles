@@ -386,3 +386,33 @@ def test_schedule_accepts_slightly_early_ticks():
     assert s.due(0.999)  # 1 ms early still counts
     assert not s.due(1.5)
     assert s.due(2.0)
+
+
+# -- rangefinder (DISTANCE_SENSOR -> NAMED_VALUE_FLOAT "rngfnd") ---------------------
+
+def test_decode_distance_sensor_reads_metres_and_orientation():
+    import struct
+    from nidar_autonomy.telem_command_codec import decode_distance_sensor
+    full = struct.pack("<IHHHBBBB", 1234, 5, 800, 13, 0, 0, 25, 0)
+    assert decode_distance_sensor(full) == (0.13, 25)
+    # MAVLink 2 trims trailing zero bytes: still decodes
+    assert decode_distance_sensor(full.rstrip(b"\x00")) == (0.13, 25)
+    assert decode_distance_sensor(b"\x00" * 6) is None
+
+
+def test_rangefinder_is_sent_every_tick_while_fresh():
+    from pymavlink.dialects.v20 import common as mavlink
+    relay = TelemetryRelay(Seq(), start_time=100.0)
+
+    def rangefinder_values(frames):
+        out = []
+        for frame in frames:
+            m = mavlink.MAVLink(None).parse_char(frame)
+            if m is not None and m.get_type() == "NAMED_VALUE_FLOAT" and m.name == "rngfnd":
+                out.append(round(m.value, 2))
+        return out
+
+    relay.update_rangefinder(110.0, 0.13)
+    assert rangefinder_values(relay.tick(110.1)) == [0.13]
+    assert rangefinder_values(relay.tick(110.3)) == [0.13]  # every tick, not 1 Hz
+    assert rangefinder_values(relay.tick(112.0)) == []  # stale: not sent
