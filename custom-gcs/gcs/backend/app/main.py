@@ -96,6 +96,7 @@ from .ros_client import (
     RosBridgeClient,
 )
 from .schemas import (
+    AltitudeResponse,
     AttitudeResponse,
     AutonomyStateResponse,
     BatteryResponse,
@@ -346,6 +347,13 @@ def create_app(
         if not scan:
             return LidarResponse()
         return LidarResponse(available=True, **scan)
+
+    @app.get("/api/altitude", response_model=AltitudeResponse, tags=["telemetry"])
+    def altitude(since: float | None = None) -> AltitudeResponse:
+        history = getattr(ros_client, "altitude", None)
+        if history is None:  # only the radio telemetry client keeps a history
+            return AltitudeResponse()
+        return AltitudeResponse(available=True, **history(since))
 
     @app.get("/api/map", response_model=MapResponse, tags=["map"])
     def map_snapshot() -> MapResponse:

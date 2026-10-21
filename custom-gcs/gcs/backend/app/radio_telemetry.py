@@ -31,6 +31,7 @@ import math
 import struct
 import threading
 import time
+from collections import deque
 from typing import Any, Callable, Optional
 
 from .radio_protocol import (
@@ -100,6 +101,9 @@ _POSE = struct.Struct("<hhh")
 _ARENA_HEADER = struct.Struct("<BBBhHHhhbbBB")
 _UNKNOWN_CM = 0xFFFF
 STATUSTEXT_HISTORY = 20
+# Altitude panel: every LOCAL_POSITION_NED height kept this long (seconds),
+# so the GCS draws a continuous graph even though it polls in bursts.
+ALTITUDE_HISTORY_S = 120.0
 _PARTIAL_TEXT_TIMEOUT_S = 5.0
 
 _NO_PUBLISH = "telemetry comes over the command radio -- there is no ROS link to publish on"
@@ -159,6 +163,11 @@ class RadioTelemetryClient:
         self._arena_header: Optional[tuple] = None
         self._arena_parts: dict[int, bytes] = {}
         self._mission_id: Optional[str] = None  # from the Jetson heartbeat
+        # (received at, z up, vz up) for every position; z when the FCU last
+        # armed = the take-off height, so the panel can show height above it
+        self._altitude: deque = deque()
+        self._armed = False
+        self._ground_z: Optional[float] = None
 
     # -- input (RadioLink reader thread) -------------------------------------------
 
@@ -200,6 +209,10 @@ class RadioTelemetryClient:
                         self._store("mission_detail", text, now)
             elif source == _FCU:
                 if kind == "HEARTBEAT":
+                    armed = bool(msg.base_mode & MAV_MODE_FLAG_SAFETY_ARMED)
+                    if armed and not self._armed and self._altitude:
+                        self._ground_z = self._altitude[-1][1]
+                    self._armed = armed
                     self._store("fcu", {
                         "armed": bool(msg.base_mode & MAV_MODE_FLAG_SAFETY_ARMED),
                         "guided": bool(msg.base_mode & MAV_MODE_FLAG_GUIDED_ENABLED),
@@ -214,6 +227,10 @@ class RadioTelemetryClient:
                     }, now)
                 elif kind == "LOCAL_POSITION_NED":
                     self._store("position", _rounded({"x": msg.x, "y": msg.y, "z": msg.z}, 3), now)
+                    vz = msg.vz if math.isfinite(msg.vz) else None
+                    self._altitude.append((now, round(msg.z, 3), None if vz is None else round(vz, 3)))
+                    while self._altitude and now - self._altitude[0][0] > ALTITUDE_HISTORY_S:
+                        self._altitude.popleft()
                     velocity = (msg.vx, msg.vy, msg.vz)
                     if all(math.isfinite(v) for v in velocity):
                         self._store("velocity", _rounded(dict(zip("xyz", velocity)), 3), now)
@@ -346,6 +363,14 @@ class RadioTelemetryClient:
 
     def disconnect(self) -> None:
         """Symmetric with connect()."""
+
+    def altitude(self, since: Optional[float] = None) -> dict:
+        """Height samples newer than `since` (this backend's clock, seconds):
+        {"now", "ground_z", "samples": [[t, z, vz], ...]}. z/vz are the FCU's
+        local height/climb rate (up = +); ground_z is z when it last armed."""
+        with self._lock:
+            samples = [list(s) for s in self._altitude if since is None or s[0] > since]
+            return {"now": self._clock(), "ground_z": self._ground_z, "samples": samples}
 
     def latest(self, topic: str) -> Any:
         with self._lock:
