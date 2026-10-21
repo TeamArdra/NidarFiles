@@ -394,6 +394,16 @@ export interface ParamResponse {
 
 // Live LiDAR sectors (radio OBSTACLE_DISTANCE from the Jetson). Angles
 // clockwise from the nose; null = no return in that sector.
+// GET /api/altitude -- every height the FCU reported over the radio
+// (ENU, up = +). samples: [t, z, vz] with t on the backend's clock (s);
+// ground_z: z when the FCU last armed, so height above take-off = z - ground_z.
+export interface AltitudeResponse {
+  available: boolean;
+  now: number | null;
+  ground_z: number | null;
+  samples: Array<[number, number, number | null]>;
+}
+
 export interface LidarResponse {
   available: boolean;
   age_s: number | null;

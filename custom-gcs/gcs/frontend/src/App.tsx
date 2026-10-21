@@ -4,6 +4,7 @@ import { useTelemetry } from "./hooks/useTelemetry";
 import SetupPanel from "./components/SetupPanel";
 import ConnectionPanel from "./components/ConnectionPanel";
 import FlightPanel from "./components/FlightPanel";
+import AltitudePanel from "./components/AltitudePanel";
 import MissionPanel from "./components/MissionPanel";
 import ControlsPanel from "./components/ControlsPanel";
 import BatteryPanel from "./components/BatteryPanel";
@@ -108,6 +109,7 @@ export default function App() {
       >
         <ConnectionPanel telemetry={telemetry} />
         <FlightPanel telemetry={telemetry} />
+        <AltitudePanel />
         <MissionPanel telemetry={telemetry} />
         <ControlsPanel telemetry={telemetry} />
         <BatteryPanel telemetry={telemetry} />

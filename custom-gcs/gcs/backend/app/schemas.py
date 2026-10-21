@@ -495,6 +495,18 @@ class ParamResponse(BaseModel):
     attempts: int
 
 
+class AltitudeResponse(BaseModel):
+    """Altitude panel: every height the FCU reported (radio LOCAL_POSITION_NED,
+    ENU, up = +) since `since`. Times are the backend's clock in seconds
+    (send the last `now` back as `since`); ground_z = z when the FCU last
+    armed, so height above take-off = z - ground_z."""
+
+    available: bool = False
+    now: float | None = None
+    ground_z: float | None = None
+    samples: list[list[float | None]] = []
+
+
 class LidarResponse(BaseModel):
     """Live LiDAR scan reduced to sectors (radio: OBSTACLE_DISTANCE from the
     Jetson). Angles clockwise from the drone's nose; distances_cm[i] is the

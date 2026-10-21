@@ -50,10 +50,12 @@ ETH_IF="${NIDAR_ETH_IF:-eno1}"
 RADIO_PORT="${NIDAR_RADIO_PORT:-/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0}"
 RADIO_FALLBACK_PORT="${NIDAR_RADIO_FALLBACK_PORT:-/dev/ttyUSB0}"
 RADIO_BAUD="${NIDAR_RADIO_BAUD:-115200}"
-# Position/attitude rate over the radio (FCU state, battery: 1 Hz). Keep it
-# low: START/ABORT ACKs share the radio's air time.
-# TODO(hardware): raise only after measuring the radio's real throughput.
-TELEMETRY_RATE_HZ="${NIDAR_TELEMETRY_RATE_HZ:-2.0}"
+# Position/attitude rate over the radio (FCU state, battery: 1 Hz). 5 Hz so
+# the GCS Altitude panel follows take-off/landing smoothly (~0.5 kB/s for
+# position+attitude). START/ABORT ACKs share the radio's air time: if the
+# GCS shows ACKs needing more than 1 radio attempt, go back to 2:
+#   NIDAR_TELEMETRY_RATE_HZ=2 ./scripts/jetson/start_jetson.sh
+TELEMETRY_RATE_HZ="${NIDAR_TELEMETRY_RATE_HZ:-5.0}"
 # LiDAR: scans sent over the radio per second (~180 B each), and the
 # direction of the LiDAR's 0 deg mark relative to the drone's nose (clockwise).
 LIDAR_RATE_HZ="${NIDAR_LIDAR_RATE_HZ:-1.0}"

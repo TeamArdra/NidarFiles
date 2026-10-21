@@ -11,6 +11,7 @@ import type {
   FrontiersResponse,
   HealthResponse,
   LidarResponse,
+  AltitudeResponse,
   MapResponse,
   Mission,
   MultiStepFlightTestStatusResponse,
@@ -56,6 +57,10 @@ export function getHealth(): Promise<HealthResponse> {
 
 export function getTelemetry(): Promise<TelemetryResponse> {
   return getJson<TelemetryResponse>("/api/telemetry");
+}
+
+export function getAltitude(since: number | null): Promise<AltitudeResponse> {
+  return getJson<AltitudeResponse>(since == null ? "/api/altitude" : `/api/altitude?since=${since}`);
 }
 
 export function getLidar(): Promise<LidarResponse> {
