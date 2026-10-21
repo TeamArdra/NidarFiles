@@ -38,6 +38,7 @@ from std_msgs.msg import String  # noqa: E402
 from hover_logic import HoverConfig, HoverMission  # noqa: E402
 from nidar_autonomy.ardupilot_vehicle import ArduCopterVehicle  # noqa: E402
 from nidar_autonomy.flight_command import FlightCommandClient  # noqa: E402
+from nidar_autonomy.mission_selection import MissionSelection  # noqa: E402
 from nidar_autonomy.topics import (  # noqa: E402
     HOVER_STATUS_TOPIC,
     MISSION_SELECT_TOPIC,
@@ -76,9 +77,6 @@ CONFIG = HoverConfig(
 # Change if testing far from Vellore.
 EKF_ORIGIN = (12.9165, 79.1325, 216.0)
 
-# A START must follow a /gcs/mission_select naming this mission within this
-# window (radio_command_node publishes both back to back).
-_SELECTION_MAX_AGE_S = 5.0
 _CONFLICTING_NODES = ("mission_state_node",)
 _LAST_RESORT = " -- TAKE OVER ON THE RC TRANSMITTER"
 
@@ -93,7 +91,9 @@ class HoverMissionNode(Node):
         self._lock = threading.RLock()
         self._mission = HoverMission(CONFIG)
         self._vehicle = ArduCopterVehicle(self, FlightCommandClient(self, already_spinning=True))
-        self._selection = None  # (mission_id, monotonic time)
+        # one selection per START (mission_selection.py): a START whose own
+        # selection hasn't arrived yet can't reuse an earlier one
+        self._selection = MissionSelection()
         self._streams_requested = False
         self._last_logged = (self._mission.state, self._mission.detail)
 
@@ -117,7 +117,7 @@ class HoverMissionNode(Node):
             self.get_logger().warning(f"ignoring malformed mission selection {msg.data!r}")
             return
         if isinstance(selection, dict):
-            self._selection = (selection.get("mission_id"), time.monotonic())
+            self._selection.update(selection.get("mission_id"), time.monotonic())
 
     def _on_command(self, msg: String) -> None:
         now = time.monotonic()
@@ -129,9 +129,10 @@ class HoverMissionNode(Node):
                 return
             if msg.data != "start":
                 return
-            if self._selected_other_mission(now):
+            for_us, problem = self._selection.take_for(MISSION_ID, now)
+            if not for_us:
                 return  # e.g. a motor test START: not ours, not a failure
-            problem = self._start_problem(now)
+            problem = problem or self._start_problem()
             if problem:
                 self.get_logger().error(f"[{_now()}] START refused: {problem}")
                 self._mission.reject_start(problem)
@@ -140,20 +141,8 @@ class HoverMissionNode(Node):
             self.get_logger().warning(f"[{_now()}] START received for {MISSION_ID}")
             self._run(self._mission.start(now, snap))
 
-    def _selected_other_mission(self, now: float) -> bool:
-        if self._selection is None:
-            return False
-        mission_id, at = self._selection
-        return mission_id != MISSION_ID and now - at <= _SELECTION_MAX_AGE_S
-
-    def _start_problem(self, now: float):
-        if self._selection is None:
-            return "no mission selection received"
-        mission_id, at = self._selection
-        if mission_id != MISSION_ID:
-            return f"selected mission is {mission_id!r}, not {MISSION_ID!r}"
-        if now - at > _SELECTION_MAX_AGE_S:
-            return "mission selection is stale"
+    def _start_problem(self):
+        """Checks beyond the mission selection (already checked by take_for)."""
         running = [n for n in _CONFLICTING_NODES if n in self.get_node_names()]
         if running:
             return f"{', '.join(running)} is running and would arm independently -- stop it first"
