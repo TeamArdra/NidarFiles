@@ -247,6 +247,7 @@ def create_app(
             ros_status=ros_status(),
             telemetry_source=settings.telemetry_source,
             setup_enabled=settings.setup_enabled,
+            sim_view_url=settings.sim_view(),
             rosbridge_host=settings.rosbridge_host,
             rosbridge_port=settings.rosbridge_port,
         )

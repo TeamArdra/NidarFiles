@@ -18,6 +18,7 @@ import SurvivorsPanel from "./components/SurvivorsPanel";
 import CameraPanel from "./components/CameraPanel";
 import PerceptionPanel from "./components/PerceptionPanel";
 import SimulationPanel from "./components/SimulationPanel";
+import Sim3DPanel from "./components/Sim3DPanel";
 import Footer from "./components/Footer";
 
 export default function App() {
@@ -40,12 +41,18 @@ export default function App() {
   // Bench Setup section: shown only when the backend itself was started for
   // setup (start_gcs.ps1 -Setup) -- its routes don't exist otherwise.
   const [setupEnabled, setSetupEnabled] = useState(false);
+  // Gazebo 3D view: only when the backend is connected to the simulator.
+  const [simViewUrl, setSimViewUrl] = useState<string | null>(null);
   // "mission" = the operator panels; "setup" = Pixhawk parameters (setup mode only).
   const [view, setView] = useState<"mission" | "setup">("mission");
   useEffect(() => {
     let mounted = true;
     getHealth()
-      .then((h) => mounted && setSetupEnabled(Boolean(h.setup_enabled)))
+      .then((h) => {
+        if (!mounted) return;
+        setSetupEnabled(Boolean(h.setup_enabled));
+        setSimViewUrl(h.sim_view_url ?? null);
+      })
       .catch(() => undefined);
     return () => {
       mounted = false;
@@ -106,6 +113,7 @@ export default function App() {
         data-testid="mission-panels"
         className={view === "mission" ? "grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-3" : "hidden"}
       >
+        {simViewUrl && <Sim3DPanel url={simViewUrl} />}
         <ConnectionPanel telemetry={telemetry} />
         <FlightPanel telemetry={telemetry} />
         <MissionPanel telemetry={telemetry} />

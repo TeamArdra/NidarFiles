@@ -28,6 +28,9 @@ class HealthResponse(BaseModel):
     # True only when started for bench setup (GCS_SETUP_ENABLED): the
     # frontend then shows the Setup section.
     setup_enabled: bool = False
+    # Main Mission (Sim) only: Gazebo's websocket for the live 3D view;
+    # None with the real radio (the panel is then not shown at all).
+    sim_view_url: str | None = None
     rosbridge_host: str
     rosbridge_port: int
 

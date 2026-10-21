@@ -1,0 +1,13 @@
+<?xml version='1.0'?>
+<!-- Gazebo's websocket server: streams the running sim (scene, poses, meshes)
+     to the GCS's "Simulation - Gazebo 3D" panel (gzweb). Started by
+     scripts/sim/start_sim.sh; the GCS connects to ws://127.0.0.1:9010
+     (WSL2 forwards it to Windows). TCP 9010, so it stays clear of
+     ArduPilot's JSON link (UDP 9002) and MAVROS (TCP 5760). -->
+<gz version='1.0'>
+  <plugin name="gz::launch::WebsocketServer" filename="gz-launch-websocket-server">
+    <publication_hertz>30</publication_hertz>
+    <port>9010</port>
+    <max_connections>4</max_connections>
+  </plugin>
+</gz>

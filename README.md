@@ -447,6 +447,11 @@ MicroLR900 pair) and START **Main Mission (Sim)**:
 ./scripts/gcs/start_gcs.sh --port socket://127.0.0.1:5800            # Linux
 ```
 
+With the radio on `socket://` the panel also shows **Simulation — Gazebo 3D**
+at the top: the live Gazebo scene (maze + flying drone, `gzweb` over Gazebo's
+websocket on port 9010) — drag to orbit, scroll to zoom, *Free view / Follow
+drone*. It never appears with the real radio.
+
 The Jetson refuses Main Mission (Sim) on the drone, and the sim refuses
 Main Mission. Quick check without any of that (pure Python, ~30 s):
 `python missions/main_mission/sim2d.py` flies the mission logic through the

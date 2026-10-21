@@ -25,6 +25,9 @@ export interface HealthResponse {
   telemetry_source?: "radio" | "rosbridge";
   // True only when the backend was started for bench setup (start_gcs.ps1 -Setup).
   setup_enabled?: boolean;
+  // Main Mission (Sim) only: Gazebo's websocket for the live 3D panel; absent
+  // or null with the real radio (the panel is then not shown).
+  sim_view_url?: string | null;
   rosbridge_host: string;
   rosbridge_port: number;
 }

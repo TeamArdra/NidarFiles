@@ -9,6 +9,7 @@
 #   Jetson nodes      command_node, heartbeat_node, radio_command_node
 #   missions/main_mission/mission.py --sim
 #   socat             the radio pair: /tmp/nidar_radio  <->  TCP port 5800
+#   gz websocket      the live 3D scene for the GCS panel: ws://127.0.0.1:9010
 #
 # Then on the laptop start the GCS with the "radio" on TCP and START
 # "Main Mission (Sim)" -- same panel, same radio protocol as the real drone:
@@ -81,7 +82,7 @@ export GZ_SIM_SYSTEM_PLUGIN_PATH="$AP_GAZEBO/build${GZ_SIM_SYSTEM_PLUGIN_PATH:+:
 export GZ_SIM_RESOURCE_PATH="$GEN/models:$AP_GAZEBO/models:$AP_GAZEBO/worlds${GZ_SIM_RESOURCE_PATH:+:$GZ_SIM_RESOURCE_PATH}"
 export NIDAR_SIM=1  # mission.py: only the Sim mission may start here
 
-OURS='gz sim.*nidar_main_mission|arducopter --model JSON|lib/nidar_autonomy/(radio_command_node|command_node|heartbeat_node)|missions/(hover|motor_test|main_mission)/mission\.py|cartographer_(node|occupancy_grid_node)|socat .*nidar_radio'
+OURS='gz sim.*nidar_main_mission|gz launch .*websocket|arducopter --model JSON|lib/nidar_autonomy/(radio_command_node|command_node|heartbeat_node)|missions/(hover|motor_test|main_mission)/mission\.py|cartographer_(node|occupancy_grid_node)|socat .*nidar_radio'
 if pgrep -f "$OURS" >/dev/null; then
   say "STOP: parts of an earlier sim (or the drone stack) are still running:"
   pgrep -af "$OURS" | sed 's/^/    /'
@@ -104,6 +105,8 @@ for _ in $(seq 1 60); do
 done
 gz topic -l 2>/dev/null | grep -q "^/scan$" || fail "Gazebo world/LiDAR did not come up (see $LOG_DIR/gazebo.log)"
 say "Gazebo up: maze + drone at the entry, LiDAR on /scan"
+# live 3D view for the GCS (Simulation - Gazebo 3D panel)
+run gz_websocket gz launch "$NIDAR_DIR/sim/launch/websocket.gzlaunch"
 
 # -- ArduCopter SITL (JSON link to the ArduPilotPlugin in the drone model) -------------------
 mkdir -p "$SIM_HOME/sitl"

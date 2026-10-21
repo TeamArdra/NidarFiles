@@ -63,6 +63,18 @@ class Settings:
     # and ABORT (CLAUDE.md Important Constraint 1), so the setup routes are
     # not even created unless this is set (start_gcs.ps1 -Setup).
     setup_enabled: bool = _env_bool("GCS_SETUP_ENABLED", False)
+    # Main Mission (Sim): Gazebo's websocket (scripts/sim/start_sim.sh) for
+    # the live 3D view panel. GCS_SIM_VIEW_URL wins; otherwise it is on
+    # exactly when the "radio" is the simulator's TCP stand-in (socket://),
+    # never with the real MicroLR900 -- the competition panel is unchanged.
+    sim_view_url: str | None = os.environ.get("GCS_SIM_VIEW_URL") or None
+
+    def sim_view(self) -> str | None:
+        if self.sim_view_url:
+            return self.sim_view_url
+        if self.radio_port.startswith("socket://"):
+            return "ws://127.0.0.1:9010"
+        return None
 
     def __post_init__(self) -> None:
         if self.telemetry_source not in TELEMETRY_SOURCES:
