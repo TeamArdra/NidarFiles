@@ -42,6 +42,7 @@ from std_msgs.msg import String  # noqa: E402
 from motor_test_logic import MotorTestConfig, MotorTestMission  # noqa: E402
 from nidar_autonomy.ardupilot_vehicle import ArduCopterVehicle  # noqa: E402
 from nidar_autonomy.flight_command import FlightCommandClient  # noqa: E402
+from nidar_autonomy.mission_selection import MissionSelection  # noqa: E402
 from nidar_autonomy.topics import (  # noqa: E402
     MISSION_SELECT_TOPIC,
     MOTOR_TEST_STATUS_TOPIC,
@@ -62,7 +63,6 @@ CONFIG = MotorTestConfig(
     pause_s=1.0,
 )
 
-_SELECTION_MAX_AGE_S = 5.0
 _LAST_RESORT = " -- each motor stops by itself within its timeout; use the RC kill switch if needed"
 
 
@@ -76,7 +76,9 @@ class MotorTestNode(Node):
         self._lock = threading.RLock()
         self._mission = MotorTestMission(CONFIG)
         self._vehicle = ArduCopterVehicle(self, FlightCommandClient(self, already_spinning=True))
-        self._selection = None  # (mission_id, monotonic time)
+        # one selection per START (mission_selection.py): a START whose own
+        # selection hasn't arrived yet can't reuse an earlier one
+        self._selection = MissionSelection()
         self._last_logged = (self._mission.state, self._mission.detail)
 
         self.create_subscription(String, MISSION_SELECT_TOPIC, self._guarded("selection", self._on_select), 10)
@@ -99,7 +101,7 @@ class MotorTestNode(Node):
             self.get_logger().warning(f"ignoring malformed mission selection {msg.data!r}")
             return
         if isinstance(selection, dict):
-            self._selection = (selection.get("mission_id"), time.monotonic())
+            self._selection.update(selection.get("mission_id"), time.monotonic())
 
     def _on_command(self, msg: String) -> None:
         now = time.monotonic()
@@ -112,16 +114,11 @@ class MotorTestNode(Node):
                 return
             if msg.data != "start":
                 return
-            if not self._selected(now):
-                return  # a START for another mission
+            for_us, problem = self._selection.take_for(MISSION_ID, now)
+            if not for_us or problem:
+                return  # a START for another mission (or without a fresh selection naming this one)
             self.get_logger().warning(f"[{_now()}] START received for {MISSION_ID}")
             self._run(self._mission.start(now, snap))
-
-    def _selected(self, now: float) -> bool:
-        if self._selection is None:
-            return False
-        mission_id, at = self._selection
-        return mission_id == MISSION_ID and now - at <= _SELECTION_MAX_AGE_S
 
     # -- loop -----------------------------------------------------------------
 

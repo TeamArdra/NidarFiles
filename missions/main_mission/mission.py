@@ -47,6 +47,7 @@ from main_mission_logic import MainConfig, MainMission, Perception  # noqa: E402
 from nidar_autonomy.ardupilot_vehicle import ArduCopterVehicle  # noqa: E402
 from nidar_autonomy.flight_command import FlightCommandClient  # noqa: E402
 from nidar_autonomy.geometry import yaw_from_quaternion  # noqa: E402
+from nidar_autonomy.mission_selection import MissionSelection  # noqa: E402
 from nidar_autonomy.ros_conversions import occupancy_grid_msg_to_dict  # noqa: E402
 from nidar_autonomy.topics import (  # noqa: E402
     MAIN_MISSION_SIM_STATUS_TOPIC,
@@ -99,7 +100,6 @@ EKF_ORIGIN = (12.9165, 79.1325, 216.0)
 BODY_FRAME = os.environ.get("NIDAR_BODY_FRAME", "laser")
 MAP_FRAME = "map"
 
-_SELECTION_MAX_AGE_S = 5.0
 _CONFLICTING_NODES = ("mission_state_node",)
 _LAST_RESORT = " -- TAKE OVER ON THE RC TRANSMITTER"
 
@@ -123,7 +123,8 @@ class MainMissionNode(Node):
             if sim else FlightCommandClient(self, already_spinning=True)
         )
         self._vehicle = ArduCopterVehicle(self, flight)
-        self._selection = None  # (mission_id, monotonic time)
+        # one selection per START (TeamArdra failsafe, mission_selection.py)
+        self._selection = MissionSelection()
         self._streams_requested = False
         self._last_logged = (self._mission.state, self._mission.detail)
         self._map = None  # (dict, monotonic receive time)
@@ -184,7 +185,7 @@ class MainMissionNode(Node):
             self.get_logger().warning(f"ignoring malformed mission selection {msg.data!r}")
             return
         if isinstance(selection, dict):
-            self._selection = (selection.get("mission_id"), time.monotonic())
+            self._selection.update(selection.get("mission_id"), time.monotonic())
 
     def _on_command(self, msg: String) -> None:
         now = self._mission_now()
@@ -197,9 +198,10 @@ class MainMissionNode(Node):
                 return
             if msg.data != "start":
                 return
-            if self._selected_other_mission(wall):
+            for_us, problem = self._selection.take_for(self._mission_id, wall)
+            if not for_us:
                 return  # another mission's START: not ours, not a failure
-            problem = self._start_problem(wall)
+            problem = problem or self._start_problem()
             if problem:
                 self.get_logger().error(f"[{_now()}] START refused: {problem}")
                 self._mission.reject_start(problem)
@@ -208,20 +210,8 @@ class MainMissionNode(Node):
             self.get_logger().warning(f"[{_now()}] START received for {self._mission_id}")
             self._run(self._mission.start(now, snap, self._perception()))
 
-    def _selected_other_mission(self, now: float) -> bool:
-        if self._selection is None:
-            return False
-        mission_id, at = self._selection
-        return mission_id != self._mission_id and now - at <= _SELECTION_MAX_AGE_S
-
-    def _start_problem(self, now: float):
-        if self._selection is None:
-            return "no mission selection received"
-        mission_id, at = self._selection
-        if mission_id != self._mission_id:
-            return f"selected mission is {mission_id!r}, not {self._mission_id!r}"
-        if now - at > _SELECTION_MAX_AGE_S:
-            return "mission selection is stale"
+    def _start_problem(self):
+        """Checks beyond the mission selection (already checked by take_for)."""
         in_sim = os.environ.get("NIDAR_SIM") == "1"
         if self._sim and not in_sim:
             return "Main Mission (Sim) only runs in the simulator (start_sim.sh) -- select Main Mission"
