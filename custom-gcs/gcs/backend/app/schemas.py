@@ -505,6 +505,8 @@ class AltitudeResponse(BaseModel):
     now: float | None = None
     ground_z: float | None = None
     samples: list[list[float | None]] = []
+    # the downward rangefinder's distance: [t, metres], same clock as samples
+    range: list[list[float]] = []
 
 
 class LidarResponse(BaseModel):

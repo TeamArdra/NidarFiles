@@ -56,6 +56,24 @@ describe("AltitudePanel", () => {
     expect(screen.getByText("height above take-off")).toBeTruthy();
   });
 
+  it("shows the rangefinder distance", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(api, "getAltitude").mockResolvedValue({
+      available: true,
+      now: 100,
+      ground_z: null,
+      samples: [[99.8, 1.94, 0]],
+      range: [
+        [99.7, 0.12],
+        [99.9, 0.13],
+      ],
+    });
+    render(<AltitudePanel />);
+    await act(async () => undefined);
+    expect(screen.getByTestId("alt-range").textContent).toBe("rangefinder 0.13 m");
+    expect(screen.getByTestId("alt-now").textContent).toBe("1.94 m"); // the drifting baro height, for comparison
+  });
+
   it("asks only for samples newer than the last one", async () => {
     vi.useFakeTimers();
     const spy = vi.spyOn(api, "getAltitude").mockResolvedValue({

@@ -39,6 +39,9 @@ LOCAL_POSITION_TOPIC = "/mavros/local_position/pose"
 LOCAL_VELOCITY_TOPIC = "/mavros/local_position/velocity_local"
 IMU_TOPIC = "/mavros/imu/data"
 FCU_STATUSTEXT_TOPIC = "/mavros/statustext/recv"
+# Every MAVLink message MAVROS receives from the FCU, raw (mavros_msgs/Mavlink,
+# best effort). radio_command_node takes DISTANCE_SENSOR (rangefinder) from it.
+FCU_RAW_MAVLINK_TOPIC = "/uas1/mavlink_source"
 SCAN_TOPIC = "/scan"
 
 # Localization: a future SLAM pipeline's pose estimate, fed back to the FCU's
