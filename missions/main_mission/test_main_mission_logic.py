@@ -221,23 +221,38 @@ class TestSafety:
 
 
 class TestFrames:
-    def test_jump_between_frames_restarts_the_transform(self):
+    def test_lasting_jump_between_frames_restarts_the_transform(self):
         """Map frame suddenly rotated 90 deg from local and shifted (e.g. a
-        SLAM loop closure): taken at once, not averaged in over seconds."""
+        SLAM loop closure) and it stays that way: taken over after
+        transform_jump_confirm_s, not averaged in over many seconds."""
         m = airborne()
-        # vehicle at local (5, 5) heading +y (pi/2); SLAM says map (0, 0) heading 0
-        a = m.tick(3.1, flying(pos=(5.0, 5.0, 1.0), yaw=math.pi / 2), seen(pose=(0.0, 0.0, 0.0)))
+        # vehicle at local (5, 5) heading +y (pi/2); SLAM says map (0, 0) heading 0.
+        # The vehicle isn't turning: the jump is in the pose sources.
+        m._last_local_yaw = (3.05, math.pi / 2)
+        m.tick(3.1, flying(pos=(5.0, 5.0, 1.0), yaw=math.pi / 2), seen(pose=(0.0, 0.0, 0.0), age=0.0))
+        assert m._transform.apply(1.0, 0.0, 0.0)[0] == pytest.approx(1.0, abs=0.01)  # not yet
+        a = m.tick(3.1 + CFG.transform_jump_confirm_s + 0.1, flying(pos=(5.0, 5.0, 1.0), yaw=math.pi / 2), seen(pose=(0.0, 0.0, 0.0), age=0.0))
         x, y, yaw = m._transform.apply(1.0, 0.0, 0.0)  # 1 m ahead in the map
         assert (x, y) == pytest.approx((5.0, 6.0), abs=0.01)
         assert yaw == pytest.approx(math.pi / 2, abs=0.01)
         assert a and a[-1].kind == "goto"
 
+    def test_short_disagreement_while_turning_is_ignored(self):
+        """A fast turn: the lagging SLAM heading disagrees with the FCU's by
+        40 deg for a moment. Must not touch the transform (the sim crash)."""
+        m = airborne()
+        before = (m._transform.x, m._transform.y, m._transform.yaw)
+        for i in range(10):  # heading sweeping at ~60 deg/s, SLAM 40 deg behind
+            yaw = 0.1 * i
+            m.tick(3.1 + 0.1 * i, flying(yaw=yaw), seen(pose=(0.0, 0.0, yaw - math.radians(40))))
+        assert (m._transform.x, m._transform.y, m._transform.yaw) == pytest.approx(before, abs=1e-6)
+
     def test_small_drift_is_smoothed(self):
         m = airborne(MainConfig(exploration_done_cycles=10_000))  # keep flying
-        m.tick(3.1, flying(pos=(0.2, 0.0, 1.0)), seen())  # EKF 0.2 m off the map
+        m.tick(3.1, flying(pos=(0.2, 0.0, 1.0)), seen(age=0.0))  # EKF 0.2 m off the map
         assert m._transform.x == pytest.approx(0.01, abs=0.005)  # 5 % of it per sample
         for t in range(200):
-            m.tick(3.2 + t * 0.1, flying(pos=(0.2, 0.0, 1.0)), seen())
+            m.tick(3.2 + t * 0.1, flying(pos=(0.2, 0.0, 1.0)), seen(age=0.0))
         assert m._transform.x == pytest.approx(0.2, abs=0.01)
 
 
@@ -260,3 +275,17 @@ class TestFreshMap:
         assert m.state == RETURNING
         assert m.tick(3.0 + CFG.explore_budget_s + 2, flying(), seen(grid=blank)) == [Action("set_mode", LAND)]
         assert m._outcome == COMPLETE
+
+
+class TestSlamLag:
+    def test_lagged_slam_pose_is_matched_with_the_fcu_pose_of_that_moment(self):
+        """Flying +x at 0.5 m/s with the SLAM pose 0.6 s old: the frames are
+        in fact identical, so the transform must stay ~0 (matching the
+        newest FCU pose would make it 0.3 m off)."""
+        m = airborne(MainConfig(exploration_done_cycles=10_000))
+        t = 3.0
+        for i in range(200):
+            t += 0.1
+            x_now = 0.05 * i
+            m.tick(t, flying(pos=(x_now, 0.0, 1.0)), seen(pose=(x_now - 0.3, 0.0, 0.0), age=0.6))
+        assert abs(m._transform.x) < 0.05 and abs(m._transform.y) < 0.05

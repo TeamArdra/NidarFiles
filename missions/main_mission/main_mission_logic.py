@@ -34,6 +34,7 @@ Safety rules (on top of hover's, which are kept as-is):
 from __future__ import annotations
 
 import math
+from collections import deque
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
@@ -91,6 +92,12 @@ class MainConfig:
     slam_stale_s: float = 1.5
     slam_lost_land_s: float = 6.0
     max_map_local_jump_m: float = 1.5  # map->local transform jump treated as SLAM failure
+    # The SLAM pose lags the FCU's pose (LiDAR rate + scan matching), so while
+    # the heading changes the two disagree: don't learn the transform then,
+    # and only believe a jump that lasts (2026-10-21 sim crash: a lagged 50
+    # deg/s turn looked like a "jump", the reset rotated every setpoint).
+    transform_max_yaw_rate_rps: float = math.radians(9)
+    transform_jump_confirm_s: float = 1.0
     mode_confirm_timeout_s: float = 5.0
     arm_timeout_s: float = 15.0
     takeoff_ack_timeout_s: float = 5.0
@@ -144,6 +151,11 @@ class MainMission:
         self._return_started: Optional[float] = None
         self._entry: Optional[EntryPose] = None
         self._transform = RigidTransform2D(smoothing=0.05)
+        self._last_local_yaw: Optional[Tuple[float, float]] = None  # (now, yaw)
+        # FCU local poses (now, x, y, yaw), ~10 s: the SLAM pose is matched
+        # with the FCU pose from the same moment (its age), not the newest.
+        self._local_history: deque = deque(maxlen=150)
+        self._jump_since: Optional[float] = None
         self._explorer = Explorer(config.explore)
         self._follower = PathFollower(config.follow)
         self._last_plan = -math.inf
@@ -246,7 +258,7 @@ class MainMission:
             actions = self._airborne_watchdog(now, snap)
             if actions is not None:
                 return actions
-            self._update_transform(seen, snap)
+            self._update_transform(now, seen, snap)
             if self.state == TAKING_OFF:
                 return self._tick_takeoff(now, snap, seen)
             return self._tick_navigate(now, snap, seen)
@@ -364,7 +376,10 @@ class MainMission:
             self._follower.clear()  # replan from the recovered pose
             self._last_plan = -math.inf
 
-        x, y, yaw = seen.slam_pose
+        # Steer from where the drone is NOW: the FCU's current pose in the map
+        # frame (the SLAM pose is a fraction of a second old -- 0.3 m at
+        # cruise speed, enough to cut a corner into a wall in the sim).
+        x, y, yaw = self._map_pose_now(seen, snap)
         self._explorer.record_pose(x, y)
         entry = self._entry
 
@@ -465,23 +480,59 @@ class MainMission:
 
     # -- internals: frames --------------------------------------------------------
 
-    def _update_transform(self, seen: Perception, snap: VehicleSnapshot) -> None:
+    def _map_pose_now(self, seen: Perception, snap: VehicleSnapshot) -> Tuple[float, float, float]:
+        """The FCU's current pose expressed in the map frame (inverse of the
+        map->local transform); the SLAM pose itself until there is one."""
+        tr = self._transform
+        if not tr.initialized or snap.position is None or snap.yaw is None:
+            return seen.slam_pose
+        c, s = math.cos(tr.yaw), math.sin(tr.yaw)
+        dx, dy = snap.position[0] - tr.x, snap.position[1] - tr.y
+        return (c * dx + s * dy, -s * dx + c * dy, wrap(snap.yaw - tr.yaw))
+
+    def _local_at(self, t: float) -> Optional[Tuple[float, float, float]]:
+        """The FCU pose closest to time t (from the recent history)."""
+        best = None
+        for when, x, y, yaw in self._local_history:
+            if best is None or abs(when - t) < abs(best[0] - t):
+                best = (when, x, y, yaw)
+        return None if best is None else best[1:]
+
+    def _update_transform(self, now: float, seen: Perception, snap: VehicleSnapshot) -> None:
+        if snap.position is not None and snap.yaw is not None:
+            self._local_history.append((now, snap.position[0], snap.position[1], snap.yaw))
         if not self._slam_ok(seen) or snap.position is None or snap.yaw is None:
             return
+        c = self.config
         mx, my, myaw = seen.slam_pose
-        lx, ly, lyaw = snap.position[0], snap.position[1], snap.yaw
+        # the FCU pose from when the SLAM pose was valid (its age)
+        lx, ly, lyaw = self._local_at(now - (seen.slam_age_s or 0.0)) or (snap.position[0], snap.position[1], snap.yaw)
+        turning = False
+        if self._last_local_yaw is not None:
+            then, yaw_then = self._last_local_yaw
+            if now > then:
+                turning = abs(wrap(lyaw - yaw_then)) / (now - then) > c.transform_max_yaw_rate_rps
+        self._last_local_yaw = (now, lyaw)
+        tr = self._transform
+        if tr.initialized and turning:
+            return  # the lagging SLAM pose would skew it: keep the last estimate
         raw = RigidTransform2D()
         raw.update(mx, my, myaw, lx, ly, lyaw)  # this sample alone
-        tr = self._transform
         if tr.initialized and (
-            math.hypot(raw.x - tr.x, raw.y - tr.y) > self.config.max_map_local_jump_m
+            math.hypot(raw.x - tr.x, raw.y - tr.y) > c.max_map_local_jump_m
             or abs(wrap(raw.yaw - tr.yaw)) > math.radians(30)
         ):
-            # one pose source jumped (e.g. a SLAM loop closure moved the map):
-            # restart from this sample instead of averaging the jump in slowly
-            self._transform = raw
-            raw.smoothing = tr.smoothing
+            # Looks like one pose source jumped (e.g. a SLAM loop closure moved
+            # the map). Only believe it if it lasts; then restart from this
+            # sample instead of averaging the jump in slowly.
+            if self._jump_since is None:
+                self._jump_since = now
+            if now - self._jump_since >= c.transform_jump_confirm_s:
+                raw.smoothing = tr.smoothing
+                self._transform = raw
+                self._jump_since = None
             return
+        self._jump_since = None
         tr.update(mx, my, myaw, lx, ly, lyaw)
 
     def _goto_map(self, target, yaw: float) -> Action:

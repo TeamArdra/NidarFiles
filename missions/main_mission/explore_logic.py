@@ -94,6 +94,10 @@ class FollowConfig:
     repulsion_gain: float = 0.5
     repulsion_max_m: float = 0.25
     yaw_min_step_m: float = 0.25  # only turn towards the carrot if it is this far
+    # Turn the nose gently: the SLAM pose lags the FCU's heading, so fast turns
+    # make the two frames disagree (Main Mission (Sim) 2026-10-21: a 50 deg/s
+    # turn skewed the setpoints and the drone hit a wall).
+    yaw_rate_max_rps: float = math.radians(30)
     stuck_window_s: float = 12.0
     stuck_min_move_m: float = 0.4
 
@@ -363,6 +367,7 @@ class PathFollower:
         self.path: List[Point] = []
         self._index = 0
         self._yaw: Optional[float] = None
+        self._yaw_at: Optional[float] = None
         self._progress: deque = deque()
 
     def set_path(self, path: Sequence[Point], now: float) -> None:
@@ -416,7 +421,12 @@ class PathFollower:
             px, py = px * c.repulsion_max_m / mag, py * c.repulsion_max_m / mag
         target = (carrot[0] + px, carrot[1] + py)
         if math.hypot(carrot[0] - pose[0], carrot[1] - pose[1]) >= c.yaw_min_step_m:
-            self._yaw = math.atan2(carrot[1] - pose[1], carrot[0] - pose[0])
+            want = math.atan2(carrot[1] - pose[1], carrot[0] - pose[0])
+            dt = 0.0 if self._yaw_at is None else max(0.0, now - self._yaw_at)
+            step = c.yaw_rate_max_rps * dt
+            turn = wrap(want - self._yaw)
+            self._yaw = wrap(self._yaw + max(-step, min(step, turn)))
+        self._yaw_at = now
         # stuck: moved less than stuck_min_move_m over the last stuck_window_s
         self._progress.append((now, pose))
         while self._progress and now - self._progress[0][0] > c.stuck_window_s:

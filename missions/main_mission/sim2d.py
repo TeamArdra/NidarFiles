@@ -77,7 +77,7 @@ class Sim2D:
 
     def __init__(self, walls: List[Rect], start=(0.0, 0.0), start_yaw=math.pi / 2,
                  drift_mps=(0.004, -0.003), speed_mps=0.5, lidar_range_m=6.0,
-                 body_radius_m=0.2) -> None:
+                 body_radius_m=0.2, slam_lag_s=0.6) -> None:
         self.walls = walls
         self.start = start
         self.start_yaw = start_yaw
@@ -85,6 +85,10 @@ class Sim2D:
         self.speed = speed_mps
         self.lidar_range = lidar_range_m
         self.body_radius = body_radius_m
+        # The SLAM pose is older than the FCU's (LiDAR rate + scan matching):
+        # with it the 2D sim reproduces the turn-lag crash seen in Gazebo.
+        self.slam_lag = slam_lag_s
+        self._history: List[Tuple[float, float, float, float]] = []
         x0, y0, x1, y1 = self.BOUNDS
         self.w = round((x1 - x0) / self.RES)
         self.h = round((y1 - y0) / self.RES)
@@ -196,7 +200,11 @@ class Sim2D:
         if self._map is None or self.t - self._map_at >= 1.0:
             self._map = self._build_map()
             self._map_at = self.t
-        return Perception(self._map, self.t - self._map_at, self.world_to_map(self.x, self.y, self.yaw), 0.05)
+        self._history.append((self.t, self.x, self.y, self.yaw))
+        while len(self._history) > 1 and self._history[1][0] <= self.t - self.slam_lag:
+            self._history.pop(0)
+        _, hx, hy, hyaw = self._history[0]
+        return Perception(self._map, self.t - self._map_at, self.world_to_map(hx, hy, hyaw), self.slam_lag)
 
     # -- vehicle --------------------------------------------------------------------
     def execute(self, action: Action) -> Tuple[bool, str]:
@@ -246,7 +254,7 @@ class Sim2D:
                 self.y += dy / d * move
             self.z += max(-0.5 * dt, min(0.5 * dt, tz - self.z))
             dyaw = math.atan2(math.sin(tyaw - self.yaw), math.cos(tyaw - self.yaw))
-            self.yaw += max(-1.0 * dt, min(1.0 * dt, dyaw))
+            self.yaw += max(-1.5 * dt, min(1.5 * dt, dyaw))  # ArduCopter-like yaw rate
         clearance = min(_rect_distance(self.x, self.y, w) for w in self.walls)
         self.min_clearance = min(self.min_clearance, clearance)
         if self.y < -1.2 and self.z > 0.2:

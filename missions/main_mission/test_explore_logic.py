@@ -83,7 +83,12 @@ class TestFollower:
         f.set_path([(0.0, 0.0), (1.0, 0.0), (1.0, 2.0)], 0.0)
         cmd = f.step(0.0, (0.5, 0.0), 0.0, [])
         assert cmd.target == pytest.approx((1.0, 0.5))
-        assert cmd.yaw == pytest.approx(math.atan2(0.5, 0.5))
+        assert cmd.yaw == pytest.approx(0.0)  # turns gradually, not in one jump
+        cmd = f.step(0.5, (0.5, 0.0), 0.0, [])  # 0.5 s at <= 30 deg/s
+        assert cmd.yaw == pytest.approx(math.radians(15))
+        for t in range(2, 10):
+            cmd = f.step(0.5 * t, (0.5, 0.0), 0.0, [])
+        assert cmd.yaw == pytest.approx(math.atan2(0.5, 0.5))  # then holds the travel direction
 
     def test_reached_at_the_end(self):
         f = PathFollower(FollowConfig())
