@@ -69,19 +69,31 @@ export default function Sim3DPanel({ url }: { url: string }) {
           <span className={`inline-block w-2 h-2 rounded-full ${dot}`} />
           <span className="text-dim">Gazebo {url}:</span> <span>{status}</span>
         </span>
-        <button
-          type="button"
-          className="px-2 py-0.5 rounded border border-border text-dim hover:text-text"
-          onClick={toggleFollow}
-          disabled={status !== "connected"}
-        >
-          {follow ? "Free view" : "Follow drone"}
-        </button>
+        <span className="flex gap-1.5">
+          <button
+            type="button"
+            className="px-2 py-0.5 rounded border border-border text-dim hover:text-text"
+            onClick={() => scene.current?.moveTo(SIM_DRONE_ENTITY)}
+            disabled={status !== "connected"}
+            title="Jump the camera to the drone once; then orbit/zoom freely"
+          >
+            Zoom to drone
+          </button>
+          <button
+            type="button"
+            className="px-2 py-0.5 rounded border border-border text-dim hover:text-text"
+            onClick={toggleFollow}
+            disabled={status !== "connected"}
+            title={follow ? "Stop chasing the drone" : "Chase camera behind the drone (turns with it)"}
+          >
+            {follow ? "Free view" : "Follow drone"}
+          </button>
+        </span>
       </div>
       <div id={ELEMENT_ID} className="w-full h-[440px] rounded-md overflow-hidden bg-black" />
       <div className="mt-1.5 text-[11px] text-dim">
-        Simulator only (not shown with the real radio). Drag to orbit, scroll to zoom. The drone is the iris at the
-        entry; START <b>Main Mission (Sim)</b> in Mission Control to fly it.
+        Simulator only (not shown with the real radio). Drag to orbit, right-drag to pan, scroll to zoom;
+        <b> Zoom to drone</b> jumps to it once. START <b>Main Mission (Sim)</b> in Mission Control to fly it.
       </div>
     </Panel>
   );

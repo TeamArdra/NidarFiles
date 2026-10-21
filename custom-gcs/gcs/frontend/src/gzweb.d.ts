@@ -16,6 +16,7 @@ declare module "gzweb" {
     resize(): void;
     resetView(): void;
     follow(entityName: string): void;
+    moveTo(entityName: string): void;
     thirdPersonFollow(entityName: string): void;
     getConnectionStatusAsObservable(): Observable<boolean>;
   }

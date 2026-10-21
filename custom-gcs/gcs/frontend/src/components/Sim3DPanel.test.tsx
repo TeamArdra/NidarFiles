@@ -12,6 +12,7 @@ vi.mock("gzweb", () => ({
     resize = vi.fn();
     resetView = vi.fn();
     follow = vi.fn();
+    moveTo = vi.fn();
     thirdPersonFollow = vi.fn();
     getConnectionStatusAsObservable = () => status$.asObservable();
     constructor(config: unknown) {
@@ -49,6 +50,15 @@ describe("Sim3DPanel", () => {
     expect(instances[0].thirdPersonFollow).toHaveBeenCalledWith(SIM_DRONE_ENTITY);
     fireEvent.click(screen.getByRole("button", { name: "Free view" }));
     expect(instances[0].resetView).toHaveBeenCalled();
+  });
+
+  it("zoom to drone moves the camera once, without following", async () => {
+    render(<Sim3DPanel url="ws://127.0.0.1:9010" />);
+    await act(async () => undefined);
+    act(() => status$.next(true));
+    fireEvent.click(screen.getByRole("button", { name: "Zoom to drone" }));
+    expect(instances[0].moveTo).toHaveBeenCalledWith(SIM_DRONE_ENTITY);
+    expect(instances[0].thirdPersonFollow).not.toHaveBeenCalled();
   });
 
   it("a reconnect does not move the camera", async () => {
